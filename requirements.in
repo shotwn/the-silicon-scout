@@ -1,6 +1,17 @@
+# Cuda - Windows enabled PyTorch and related libraries
+# For Cuda 12.9 and python 3.12
+torch @ https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-win_amd64.whl
+torchvision @ https://download.pytorch.org/whl/cu129/torchvision-0.23.0%2Bcu129-cp312-cp312-win_amd64.whl
 h5py
 pandas
 matplotlib
 tables
 fastjet
 awkward
+transformers
+peft
+datasets
+bitsandbytes-windows
+bitsandbytes
+protobuf
+sentencepiece
