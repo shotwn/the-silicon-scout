@@ -1,0 +1,154 @@
+import pandas as pd
+import numpy as np 
+import vector
+import awkward as awk
+import fastjet
+
+vector.register_awkward()
+
+import json
+import os
+
+
+def process_events_chunk(df, start_index=0):
+    # Store jets seperately depending on whether they are signal or background
+    # Store jets in memory and write to file every 5000 events to save RAM
+    output_file_cache_size = 5000
+    signal_jets = []
+    background_jets = []
+
+    def write_jets_to_file(jets, type, additional_info=None):
+        if type == "signal":
+            file_instance = open("output/signal_jets.jsonl", "a")
+        else:
+            file_instance = open("output/background_jets.jsonl", "a")
+
+        chunk = [{'jets': awk.to_list(jet), 'type': type, **(additional_info if additional_info else {})} for jet in jets]
+        for jets in chunk:
+            file_instance.write(json.dumps(jets) + "\n")
+            file_instance.flush()
+
+        print(f"Wrote {len(chunk)} jets to file.")
+        file_instance.close()
+
+    # Now process the DataFrame chunk
+    events_combined = df.T # Transpose the DataFrame from [cols, rows] to [rows, cols] so events_combined[i] is the i-th event
+    
+    # Loop through each event (row) in the transposed DataFrame
+    for i in range(start_index, np.shape(events_combined)[1] + start_index):
+        # This data set includes both background and signal events
+        # Each row of events_combined is a collision event
+        # Index 2100 is a tag or label that indicates whether the event is background (0) or signal (1)
+        # Background events are normal events, while signal events are rare events that may indicate new physics phenomena
+
+        is_signal = events_combined[i][2100] # Get the label for the event
+        # Data starts as background and ends as signals, events 1098978 to 1099999 are signals
+        event_data = events_combined[i][:2100] # Get the event data excluding the label
+
+        """
+        From LHC Olympics 2020 website:
+        Both the “Simulation” and “Data” have the following event selection: 
+        at least one anti-kT R = 1.0 jet with pseudorapidity |η| < 2.5 and transverse momentum pT > 1.2 TeV.
+        For each event, we provide a list of all hadrons (pT, η, φ, pT, η, φ, …) zero-padded up to 700 hadrons.
+        """
+
+        # So for events_anomalydetection_v2.h5 each particle has 3 numbers: pT, eta, phi and rows are padded to 700 particles totalling on 2100 columns + 1 label column
+        # [pT₁, η₁, φ₁,  pT₂, η₂, φ₂,  pT₃, η₃, φ₃,  ..., pT₇₀₀, η₇₀₀, φ₇₀₀, label]
+        # For pT take every 3rd element starting from index 0
+
+        # Create an empty array for pseudojets input
+        # We use only the non-zero pT values to determine the length
+        # Numpy is needed because vanilla python fills RAM too quickly
+        awkward_builder = awk.ArrayBuilder()
+
+        # Fill the pseudojets input array with pT, eta, phi values
+        for j in range(len([x for x in event_data if x != 0]) // 3):
+            with awkward_builder.record():
+                awkward_builder.field("pt").append(event_data[j * 3])
+                awkward_builder.field("eta").append(event_data[j * 3 + 1])
+                awkward_builder.field("phi").append(event_data[j * 3 + 2])
+                awkward_builder.field("M").append(0.0)  # Assuming massless particles
+
+
+        # Combine pT, eta, phi into a list of jets for the event
+        # This is from cluster library, which I did not use before
+        # R is the jet radius parameter, p is the algorithm parameter (p=-1 for anti-kt)
+        # ptmin is the minimum transverse momentum for a jet to be considered
+        # jets = cluster(pseudojets_input, R=1.0, p=-1).inclusive_jets(ptmin=1200.0) # Anti-kt algorithm with R=1.0, p=-1 for anti-kt, ptmin=1200 GeV
+        # ! pyjet is now unmaintained, use fastjet instead
+
+        jets_input_array = awk.Array(awkward_builder.snapshot(), with_name="Momentum4D")
+
+        jetdef = fastjet.JetDefinition(fastjet.antikt_algorithm, 1.0)
+        cluster = fastjet.ClusterSequence(jets_input_array, jetdef)
+
+        additional_info = {
+            "num_particles": len([x for x in event_data if x != 0]) // 3,
+        }
+
+        if is_signal == 1:
+            signal_jets.append(cluster.inclusive_jets(min_pt=1200.0))
+            if len(signal_jets) >= output_file_cache_size:  # Write to file every 1000 events to save RAM
+                write_jets_to_file(signal_jets, "signal", additional_info)
+                signal_jets.clear()
+        else:
+            background_jets.append(cluster.inclusive_jets(min_pt=1200.0))
+            if len(background_jets) >= output_file_cache_size:  # Write to file every 1000 events to save RAM
+                write_jets_to_file(background_jets, "background", additional_info)
+                background_jets.clear()
+    
+    # Write any remaining jets to file
+    write_jets_to_file(signal_jets, "signal")
+    write_jets_to_file(background_jets, "background")
+
+
+
+# Load the DataFrame from the HDF5 file
+file_path = "events_anomalydetection_v2.h5"
+# file_path = "events_anomalydetection_tiny.h5" # For testing with smaller dataset
+numpy_read_chunk_size = 100000  # Number of rows to read at a time
+
+def generator():
+    i=0
+    while True:
+        yield pd.read_hdf(file_path, start=i*numpy_read_chunk_size, stop=(i+1)*numpy_read_chunk_size)
+
+        i+=1
+
+import multiprocessing
+num_cpus = multiprocessing.cpu_count()
+print(f"Number of CPU cores: {num_cpus}")
+
+if __name__ == "__main__":
+    # Create output dir if not exists
+    if not os.path.exists("output"):
+        os.makedirs("output")
+    else:
+        # Clear output dir
+        for file in os.listdir("output"):
+            os.remove(os.path.join("output", file))
+            
+    gen = generator()
+    chunk_index = 0
+    procs = []
+    while True:
+        try:
+            df_chunk = next(gen)
+            if df_chunk.empty:
+                break
+
+            p = multiprocessing.Process(target=process_events_chunk, args=(df_chunk, chunk_index))
+            p.start()
+            procs.append(p)
+            # If we have too many processes, wait for them to finish
+            if len(procs) >= num_cpus:
+                for proc in procs:
+                    proc.join() # Wait for all processes to finish
+                procs = []
+
+            chunk_index += numpy_read_chunk_size
+            print(f"Started processing chunk {chunk_index // numpy_read_chunk_size}")
+
+        except ValueError:
+            print("Error processing chunk")
+            break
