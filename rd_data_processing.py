@@ -16,12 +16,13 @@ def process_events_chunk(df, start_index=0):
     output_file_cache_size = 5000
     signal_jets = []
     background_jets = []
+    process_id = os.getpid()
 
     def write_jets_to_file(jets, type, additional_info=None):
         if type == "signal":
-            file_instance = open("output/signal_jets.jsonl", "a")
+            file_instance = open(f"output/signal_jets_{process_id}.jsonl", "a")
         else:
-            file_instance = open("output/background_jets.jsonl", "a")
+            file_instance = open(f"output/background_jets_{process_id}.jsonl", "a")
 
         chunk = [{'jets': awk.to_list(jet), 'type': type, **(additional_info if additional_info else {})} for jet in jets]
         for jets in chunk:
@@ -152,3 +153,28 @@ if __name__ == "__main__":
         except ValueError:
             print("Error processing chunk")
             break
+    
+    # Wait for any remaining processes to finish
+    for proc in procs:
+        proc.join()
+    
+    # After all chunks are processed, merge the output files
+    background_file_format = "output/background_jets_*.jsonl"
+    signal_file_format = "output/signal_jets_*.jsonl"
+
+    import glob
+    background_files = glob.glob(background_file_format)
+    signal_files = glob.glob(signal_file_format)
+
+    with open("output/background_jets.jsonl", "w") as outfile:
+        for fname in background_files:
+            with open(fname) as infile:
+                for line in infile:
+                    outfile.write(line)
+            os.remove(fname) # Remove the chunk file after merging
+    with open("output/signal_jets.jsonl", "w") as outfile:
+        for fname in signal_files:
+            with open(fname) as infile:
+                for line in infile:
+                    outfile.write(line)
+            os.remove(fname) # Remove the chunk file after merging
