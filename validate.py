@@ -3,11 +3,20 @@ from transformers import BitsAndBytesConfig
 from peft import PeftModel
 import torch
 import json
+from tqdm import tqdm
+import os
+import glob
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 base_model_name = "mistralai/Mistral-7B-Instruct-v0.3"
-lora_checkpoint = "lora_lhco/checkpoint-2000"  # path to LoRA weights
+lora_checkpoint = "lora_lhco/checkpoint-*"  # path to LoRA weights
+
+# Get the latest folder in the checkpoint directory
+list_of_dirs = glob.glob(lora_checkpoint)
+latest_dir = max(list_of_dirs, key=os.path.getctime)
+lora_checkpoint = latest_dir
+print("Using LoRA checkpoint:", lora_checkpoint)
 
 # Load tokenizer
 tokenizer = AutoTokenizer.from_pretrained(base_model_name)
@@ -56,16 +65,17 @@ with open(val_file, "r") as f:
             break
 
 def make_prompt(example):
-    s = "jets:\n"
+    s = "[INST] Classify this event as 'signal' or 'background'.\n"
+    s += "jets:\n"
     for i, j in enumerate(example["jets"]):
         s += f"  jet{i+1}: px={j['px']:.10f} py={j['py']:.10f} pz={j['pz']:.10f} E={j['E']:.10f}\n"
-    s += f"num_particles: {example['num_particles']}\nOutput:"
+    s += f"num_particles: {example['num_particles']}[/INST]"
     return s
 
 preds = []
 labels = []
-
-for example in val_examples:
+target_names = ["background", "signal"]
+for example in tqdm(val_examples):
     prompt = make_prompt(example)
     # Encode with attention_mask and padding
     inputs = tokenizer(
@@ -76,8 +86,6 @@ for example in val_examples:
     )
     input_ids = inputs["input_ids"].to(device)
     attention_mask = inputs["attention_mask"].to(device)
-    
-    # Generate 2 tokens max (for "0"/"1" or "background"/"signal")
 
     with torch.no_grad():
         output_ids = model.generate(
@@ -91,26 +99,30 @@ for example in val_examples:
             attention_mask=attention_mask
         )
 
-
+    """
     print("===")
     print(f"Input length: {inputs['input_ids'].shape[1]}, Output length: {output_ids.shape[1]}")
     print("Raw model output:")
     print(tokenizer.decode(output_ids[0], skip_special_tokens=False))
     print("---")
-    
-    
+    print("Expected output:")
+    print(example["type"])
+    print("---\n\n")
+    """
+
     # Decode output tokens after prompt
     pred_text = tokenizer.decode(
-        output_ids[0], 
-        skip_special_tokens=True
-    ).strip().lower()
+        output_ids[0][inputs['input_ids'].shape[1]:],  # only new tokens
+        skip_special_tokens=True,
+    )
 
-    # Take only first word to avoid repeats
+    # Take only the last word as prediction
+    # We will split the pred_text in a way to take away the prompt part
     if pred_text:
-        pred_text = pred_text[len(prompt):].strip()  # take the first word after the prompt
-        pred_text = pred_text.split(' ')[0]  # take only the first word
+        pass
+        #pred_text = pred_text[inputs['input_ids'].shape[1]:].strip().lower().split()[0]
 
-    #print(f"Prompt:\n{prompt}\nPrediction: '{pred_text}'\nTrue label: '{example['type']}'\nResult: {'CORRECT' if pred_text == example['type'].lower() else 'WRONG'}\n---")
+    print(f"Prompt:\n{prompt}\nPrediction: '{pred_text}'\nTrue label: '{example['type']}'\nResult: {'CORRECT' if pred_text == example['type'].lower() else 'WRONG'}\n---")
     
     # Normalize output
     if "signal" in pred_text:
@@ -119,7 +131,9 @@ for example in val_examples:
         pred = "background"
     else:
         # fallback if model generates something else
-        pred = "null"
+        pred = "unknown"
+        if "unknown" not in target_names:
+            target_names.append("unknown")
     
     preds.append(pred)
     labels.append(example["type"].lower())
@@ -129,6 +143,10 @@ for example in val_examples:
 accuracy = sum(p == l for p, l in zip(preds, labels)) / len(labels)
 print("Validation Accuracy:", accuracy)
 
+# Print empty predictions
+num_unknown = sum(1 for p in preds if p == "unknown")
+print("Number of unknown predictions:", num_unknown)
+
 # Optional: more metrics with sklearn
 from sklearn.metrics import classification_report
-print(classification_report(labels, preds, target_names=["background", "signal"]))
+print(classification_report(labels, preds, target_names=target_names))
