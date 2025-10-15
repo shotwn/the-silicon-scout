@@ -90,6 +90,8 @@ idna==3.11
     #   yarl
 jinja2==3.1.6
     # via torch
+joblib==1.5.2
+    # via scikit-learn
 kiwisolver==1.4.9
     # via matplotlib
 markupsafe==3.0.3
@@ -129,7 +131,10 @@ numpy==2.3.3
     #   numexpr
     #   pandas
     #   peft
+    #   scikit-learn
+    #   scipy
     #   tables
+    #   torchvision
     #   transformers
     #   vector
 packaging==25.0
@@ -151,7 +156,9 @@ pandas==2.3.3
 peft==0.17.1
     # via -r requirements.in
 pillow==11.3.0
-    # via matplotlib
+    # via
+    #   matplotlib
+    #   torchvision
 platformdirs==4.5.0
     # via blosc2
 propcache==0.4.1
@@ -198,6 +205,10 @@ safetensors==0.6.2
     #   accelerate
     #   peft
     #   transformers
+scikit-learn==1.7.2
+    # via -r requirements.in
+scipy==1.16.2
+    # via scikit-learn
 sentencepiece==0.2.1
     # via -r requirements.in
 six==1.17.0
@@ -208,13 +219,19 @@ sympy==1.14.0
     # via torch
 tables==3.10.2
     # via -r requirements.in
+threadpoolctl==3.6.0
+    # via scikit-learn
 tokenizers==0.22.1
     # via transformers
-torch==2.8.0
+torch @ https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-win_amd64.whl
     # via
+    #   -r requirements.in
     #   accelerate
     #   bitsandbytes
     #   peft
+    #   torchvision
+torchvision @ https://download.pytorch.org/whl/cu129/torchvision-0.23.0%2Bcu129-cp312-cp312-win_amd64.whl
+    # via -r requirements.in
 tqdm==4.67.1
     # via
     #   datasets

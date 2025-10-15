@@ -1,6 +1,6 @@
 """
 Run this after rd_data_processing.py to prepare the training data.
-Input file: output/background_jets.jsonl and output/signal_jets.jsonl
+Input file: output/background_events.jsonl and output/signal_events.jsonl
 Output files: output/train.jsonl and output/val.jsonl
 
 Expected input file format (JSON lines):
@@ -10,8 +10,8 @@ import json
 import random
 
 # Open the input files, merge and shuffle the jets, then split into train and val sets
-def load_jets(file_path, label):
-    jets = []
+def load_events(file_path, label):
+    events = []
     with open(file_path, "r", encoding="utf-8-sig") as f:
         for i, line in enumerate(f):
             line = line.strip() # Remove any leading/trailing whitespace
@@ -20,37 +20,41 @@ def load_jets(file_path, label):
             try:
                 event = json.loads(line)
                 event["type"] = label
-                jets.append(event)
+                events.append(event)
             except json.JSONDecodeError as e:
                 print(f"JSON error on line {i}: {e}")
                 print("Line bytes:", list(line.encode("utf-8")))
                 break
-    return jets
+    return events
 
-def merge_and_shuffle_jets(background_jets, signal_jets):
-    all_jets = background_jets + signal_jets
-    random.shuffle(all_jets)
-    return all_jets
+def merge_and_shuffle_events(background_events, signal_events):
+    all_events = background_events + signal_events
+    random.shuffle(all_events)
+    return all_events
 
-def split_jets(jets, train_ratio=0.8):
-    train_size = int(len(jets) * train_ratio)
-    train_jets = jets[:train_size]
-    val_jets = jets[train_size:]
-    return train_jets, val_jets
+def split_events(events, train_ratio=0.8):
+    train_size = int(len(events) * train_ratio)
+    train_events = events[:train_size]
+    val_events = events[train_size:]
+    return train_events, val_events
 
 if __name__ == "__main__":
-    background_jets = load_jets("output/background_jets.jsonl", "background")
-    signal_jets = load_jets("output/signal_jets.jsonl", "signal")
+    background_events = load_events("output/background_events.jsonl", "background")
+    signal_events = load_events("output/signal_events.jsonl", "signal")
 
-    all_jets = merge_and_shuffle_jets(background_jets, signal_jets)
+    # Addition
+    # We want 1:1 ratio of background to signal in training/validation
+    min_len = min(len(background_events), len(signal_events))
 
-    train_jets, val_jets = split_jets(all_jets, train_ratio=0.8)
+    all_events = merge_and_shuffle_events(background_events[:min_len], signal_events[:min_len])
+
+    train_events, val_events = split_events(all_events, train_ratio=0.8)
 
     # Save to output files
     with open("output/train.jsonl", "w") as f:
-        for event in train_jets:
+        for event in train_events:
             f.write(json.dumps(event) + "\n")
 
     with open("output/val.jsonl", "w") as f:
-        for event in val_jets:
+        for event in val_events:
             f.write(json.dumps(event) + "\n")

@@ -14,22 +14,22 @@ def process_events_chunk(df, start_index=0):
     # Store jets seperately depending on whether they are signal or background
     # Store jets in memory and write to file every 5000 events to save RAM
     output_file_cache_size = 5000
-    signal_jets = []
-    background_jets = []
+    signal_events = []
+    background_events = []
     process_id = os.getpid()
 
-    def write_jets_to_file(jets, type, additional_info=None):
+    def write_events_to_file(events, type):
         if type == "signal":
-            file_instance = open(f"output/signal_jets_{process_id}.jsonl", "a")
+            file_instance = open(f"output/signal_events_{process_id}.jsonl", "a")
         else:
-            file_instance = open(f"output/background_jets_{process_id}.jsonl", "a")
+            file_instance = open(f"output/background_events_{process_id}.jsonl", "a")
 
-        chunk = [{'jets': awk.to_list(jet), 'type': type, **(additional_info if additional_info else {})} for jet in jets]
-        for jets in chunk:
-            file_instance.write(json.dumps(jets) + "\n")
+        chunk = [{'type': type, **(event)} for event in events]
+        for event in chunk:
+            file_instance.write(json.dumps(event) + "\n")
             file_instance.flush()
 
-        print(f"Wrote {len(chunk)} jets to file.")
+        print(f"Wrote {len(chunk)} events to file.")
         file_instance.close()
 
     # Now process the DataFrame chunk
@@ -87,20 +87,20 @@ def process_events_chunk(df, start_index=0):
             "num_particles": len([x for x in event_data if x != 0]) // 3,
         }
 
-        if is_signal == 1:
-            signal_jets.append(cluster.inclusive_jets(min_pt=1200.0))
-            if len(signal_jets) >= output_file_cache_size:  # Write to file every 1000 events to save RAM
-                write_jets_to_file(signal_jets, "signal", additional_info)
-                signal_jets.clear()
-        else:
-            background_jets.append(cluster.inclusive_jets(min_pt=1200.0))
-            if len(background_jets) >= output_file_cache_size:  # Write to file every 1000 events to save RAM
-                write_jets_to_file(background_jets, "background", additional_info)
-                background_jets.clear()
+        events_list_to_append = signal_events if is_signal == 1 else background_events
+
+        events_list_to_append.append({
+            "jets": awk.to_list(cluster.inclusive_jets(min_pt=1200.0)),
+            **additional_info
+        })
+
+        if len(events_list_to_append) >= output_file_cache_size:  # Write to file every 1000 events to save RAM
+            write_events_to_file(events_list_to_append, "signal" if is_signal == 1 else "background")
+            events_list_to_append.clear()
     
     # Write any remaining jets to file
-    write_jets_to_file(signal_jets, "signal")
-    write_jets_to_file(background_jets, "background")
+    write_events_to_file(signal_events, "signal")
+    write_events_to_file(background_events, "background")
 
 
 
@@ -159,20 +159,20 @@ if __name__ == "__main__":
         proc.join()
     
     # After all chunks are processed, merge the output files
-    background_file_format = "output/background_jets_*.jsonl"
-    signal_file_format = "output/signal_jets_*.jsonl"
+    background_file_format = "output/background_events_*.jsonl"
+    signal_file_format = "output/signal_events_*.jsonl"
 
     import glob
     background_files = glob.glob(background_file_format)
     signal_files = glob.glob(signal_file_format)
 
-    with open("output/background_jets.jsonl", "w") as outfile:
+    with open("output/background_events.jsonl", "w") as outfile:
         for fname in background_files:
             with open(fname) as infile:
                 for line in infile:
                     outfile.write(line)
             os.remove(fname) # Remove the chunk file after merging
-    with open("output/signal_jets.jsonl", "w") as outfile:
+    with open("output/signal_events.jsonl", "w") as outfile:
         for fname in signal_files:
             with open(fname) as infile:
                 for line in infile:
