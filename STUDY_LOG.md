@@ -170,3 +170,58 @@ I am worried about tokenization of floating point numbers. Since the model doesn
 
 Appearently this is a common problem with LLMs. Some solutions like using another layer of numerical model on top of LLM under LoRA is being suggested to me by said LLMs but I first want to see how far I can go with pure LLM approach.
 
+## 2025-10-16
+### After Overnight Training
+Checkpoint-4500
+```
+Validation Accuracy: 0.826
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.82      0.83      0.82       493
+      signal       0.83      0.82      0.83       507
+
+    accuracy                           0.83      1000
+   macro avg       0.83      0.83      0.83      1000
+weighted avg       0.83      0.83      0.83      1000
+```
+
+Checkpoint-4900
+```
+Validation Accuracy: 0.835
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.86      0.79      0.83       493
+      signal       0.81      0.88      0.84       507
+
+    accuracy                           0.83      1000
+   macro avg       0.84      0.83      0.83      1000
+weighted avg       0.84      0.83      0.83      1000
+```
+
+Diminishing returns confirmed. I will increase the learning rate slightly and see if it can push the accuracy further.
+
+- I increased the learning rate from 3e-5 to 1e-4. This should help the model learn faster and hopefully push the model out of local minima.
+
+Next idea could be to increase the parameters I offer in the prompt by doing some more numerical analysis on the root data.
+
+Another idea is to extract logits at the output and give the probabilities as part of the output. This way I can see how confident the model is about its predictions. Also have a P score to compare with other models.
+
+#### Increased learning rate
+Model started as previous but after a point loss and gradient exploded. I paused the training at checkpoint-2300 and ran validation.
+Checkpoint-2300
+```
+Validation Accuracy: 0.762
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.84      0.64      0.73       493
+      signal       0.72      0.88      0.79       507
+
+    accuracy                           0.76      1000
+   macro avg       0.78      0.76      0.76      1000
+weighted avg       0.78      0.76      0.76      1000
+```
+
+Smaller learning rate was better at this point. But maybe the model is trying to escape a local minima. I will let it run a bit more and see if it can recover.
