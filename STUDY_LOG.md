@@ -225,3 +225,154 @@ weighted avg       0.78      0.76      0.76      1000
 ```
 
 Smaller learning rate was better at this point. But maybe the model is trying to escape a local minima. I will let it run a bit more and see if it can recover.
+
+## 2025-10-17
+After overnight training
+Checkpoint-7100
+```
+Validation Accuracy: 0.43
+  background       0.82      0.05      0.10       493
+      signal       0.73      0.89      0.80       507
+     unknown       0.00      0.00      0.00         0
+
+    accuracy                           0.48      1000
+   macro avg       0.51      0.32      0.30      1000
+weighted avg       0.77      0.48      0.46      1000
+```
+Catastrophic failure. Model completely failed to learn anything useful. A lot of whitespace predictions too.
+
+Earlier checkpoints from same training session:
+Checkpoint-3000
+```
+Validation Accuracy: 0.774
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.78      0.75      0.77       493
+      signal       0.76      0.80      0.78       507
+
+    accuracy                           0.77      1000
+   macro avg       0.77      0.77      0.77      1000
+weighted avg       0.77      0.77      0.77      1000
+```
+
+Checkpoint-4000
+```
+Validation Accuracy: 0.79
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.77      0.82      0.79       493
+      signal       0.82      0.76      0.79       507
+
+    accuracy                           0.79      1000
+   macro avg       0.79      0.79      0.79      1000
+weighted avg       0.79      0.79      0.79      1000
+```
+
+Checkpoint-5000
+```
+Validation Accuracy: 0.767
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.71      0.88      0.79       493
+      signal       0.85      0.65      0.74       507
+
+    accuracy                           0.77      1000
+   macro avg       0.78      0.77      0.76      1000
+weighted avg       0.78      0.77      0.76      1000
+```
+
+Checkpoint-6000
+```
+Validation Accuracy: 0.776
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.71      0.91      0.80       493
+      signal       0.88      0.65      0.75       507
+
+    accuracy                           0.78      1000
+   macro avg       0.80      0.78      0.77      1000
+weighted avg       0.80      0.78      0.77      1000
+```
+
+### Prepare longer prompt with more features
+I decided to increase the number of features in the prompt. I calculated additional features.
+
+I also started to use P_T (transverse momentum), psi, eta instead of px, py, pz. Since these might be more relevant for jet physics. I might consider adding lorentz invariants later on too.
+
+First of all I had to increase the max_length from 256 to 512 in both training and validation scripts.
+
+Per Jet Features:
+- P_T: Transverse momentum
+- eta: Pseudorapidity
+- phi: Azimuthal angle
+- m: Mass of the jet
+- n_particles: Number of particles in the jet
+- P_T_lead: Leading particle transverse momentum
+- dR: Delta R between jets
+
+Event Level Features:
+- n_particles: Total number of particles in the event
+- M_jj: Invariant mass of the bi-jet (or n-jet) system
+
+I modified the learning rate back to 3e-5 and restarted the training with new prompt and features.
+Also setup r=32 and lora_alpha=128, which should give more capacity to the LoRA layers.
+
+Iterations per second of course decreased due to longer prompt.
+
+But I am becoming more and more skeptical about the pure LLM approach. I think I will need to combine this with a more classical numerical model to get better results.
+
+First results of the new prompt.
+Checkpoint-200
+```
+Validation Accuracy: 0.722
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.90      0.49      0.64       494
+      signal       0.66      0.94      0.77       506
+
+    accuracy                           0.72      1000
+   macro avg       0.78      0.72      0.71      1000
+weighted avg       0.78      0.72      0.71      1000
+```
+
+I think this is a good candidate for overnight training. 
+
+Example output:
+```
+<s>[INST] Classify this event as 'signal' or 'background'.
+jets:
+  jet1: P_T=1306.5740775925 eta=1.0441122764 phi=-0.4744111075 E=2124.1572287046 m=401.5012189251 n_particles=63 P_T_lead=253.7871246338
+    dR_jet2=3.33
+  jet2: P_T=1411.5709990887 eta=-0.2765506225 phi=2.7480957547 E=1468.9232156050 m=94.2792501634 n_particles=22 P_T_lead=354.7843017578
+    dR_jet1=3.33
+n_particles: 162 M_jj= 495.7804690885698[/INST]signal
+```
+
+Since dR_jet1 (angle between jet 1 to jet 2) and dR_jet2 (angle between jet 2 to jet 1) are the same value, it might be better to modify the prompt to only show dR once in the future iterations.
+
+Before overnight training I tagged this version as v0.2 and ran until checkpoint-400.
+
+Checkpoint-400
+```
+Validation Accuracy: 0.829
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.76      0.95      0.85       494
+      signal       0.94      0.71      0.81       506
+
+    accuracy                           0.83      1000
+   macro avg       0.85      0.83      0.83      1000
+weighted avg       0.85      0.83      0.83      1000
+```
+
+I would be excited but I did see 83% accuracy before and training is relatively slow with longer prompt. So I will let it train overnight and see if it can push the accuracy further.
+
+I read more about putting a numberical MLP wrapper on top of the model. This could potentially help in capturing the complex relationships between the features more effectively. 
+
+Also all logic behind using LLM was for natural language comprehension and explanations. So soon I will have to try to teach the model to explain its reasoning too.

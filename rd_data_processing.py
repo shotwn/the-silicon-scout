@@ -83,16 +83,48 @@ def process_events_chunk(df, start_index=0):
         jetdef = fastjet.JetDefinition(fastjet.antikt_algorithm, 1.0)
         cluster = fastjet.ClusterSequence(jets_input_array, jetdef)
 
+        inclusive_jets = cluster.inclusive_jets(min_pt=1200.0)
+        constituent_array = cluster.constituents(min_pt=1200.0)
+        
+
+        # max_PT_indices[i] -> jet[i]'s leading constituent index in constituent_array
+        max_PT_indices = awk.argmax(constituent_array.pt, axis=1)
+        
+        jets = []
+        invariant_mass = np.float64(0.0)
+        for j, jet in enumerate(inclusive_jets):
+            jets.append({
+                "P_T": jet.pt,
+                "eta": jet.eta,
+                "phi": jet.phi,
+                "E": jet.E,
+                "m": jet.m,
+                "n_particles": len(constituent_array[j]),
+                # Leading constituent
+                "P_T_lead": constituent_array[j][max_PT_indices[j]].pt,
+                # Delta R with other jets will be calculated later on
+                "dR": {}
+            })
+            invariant_mass += jet.m
+
+            # O^2 op.
+            for k, other_jet in enumerate(inclusive_jets):
+                if j != k:
+                    # Calculate delta R between jets
+                    dR = jet.deltaR(other_jet)
+                    jets[j]["dR"][f"jet{k+1}"] = dR
+
         additional_info = {
-            "num_particles": len([x for x in event_data if x != 0]) // 3,
+            "n_particles": cluster.n_particles(),
+            "M_jj": invariant_mass, # Invariant mass of the dijet system
         }
 
         events_list_to_append = signal_events if is_signal == 1 else background_events
 
-        events_list_to_append.append({
-            "jets": awk.to_list(cluster.inclusive_jets(min_pt=1200.0)),
+        events_list_to_append.append(awk.to_list({
+            "jets": jets,
             **additional_info
-        })
+        }))
 
         if len(events_list_to_append) >= output_file_cache_size:  # Write to file every 1000 events to save RAM
             write_events_to_file(events_list_to_append, "signal" if is_signal == 1 else "background")
@@ -131,7 +163,7 @@ if __name__ == "__main__":
             
     gen = generator()
     chunk_index = 0
-    procs = []
+    procs: list[multiprocessing.Process] = []
     while True:
         try:
             df_chunk = next(gen)
@@ -144,7 +176,7 @@ if __name__ == "__main__":
             # If we have too many processes, wait for them to finish
             if len(procs) >= num_cpus:
                 for proc in procs:
-                    proc.join() # Wait for all processes to finish
+                    proc.join(timeout=6400) # Wait for all processes to finish
                 procs = []
 
             chunk_index += numpy_read_chunk_size

@@ -4,7 +4,7 @@ Input file: output/background_events.jsonl and output/signal_events.jsonl
 Output files: output/train.jsonl and output/val.jsonl
 
 Expected input file format (JSON lines):
-{"jets": [{"px": 1403.5763346800975, "py": -674.5511371175991, "pz": -451.67074189253435, "E": 1638.7940107293846}, {"px": -1467.244438521324, "py": 611.5017730099569, "pz": 511.10171142099244, "E": 1670.1732010159512}], "type": "background", "num_particles": 231}
+{"type": "background", "jets": [{"P_T": 1204.8690323851608, "eta": 0.1861334289679372, "phi": -2.357433740664133, "E": 1249.3582717067266, "m": 241.46999128671604, "n_particles": 76, "P_T_lead": 167.34600830078125, "dR": {"jet2": 3.1309376303974816}}, {"P_T": 1252.3324471178576, "eta": 0.09829797821454976, "phi": 0.7722715775774975, "E": 1259.8006950853248, "m": 59.65166757698319, "n_particles": 44, "P_T_lead": 323.1458435058594, "dR": {"jet1": 3.1309376303974816}}], "num_particles": 164, "M_jj": 301.1216588636992}
 """
 import json
 import random

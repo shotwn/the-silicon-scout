@@ -3,10 +3,17 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import BitsAndBytesConfig, TrainingArguments, Trainer
 from datasets import load_dataset
 import torch
+from argparse import ArgumentParser
+
+# Check environment
+arg_parser = ArgumentParser()
+arg_parser.add_argument("--override_checkpoints", type=bool, default=False, required=False, help="Whether to continue training from existing checkpoints or override them.")
+args = arg_parser.parse_args()
 
 print("PyTorch version:", torch.__version__)
 print("CUDA available:", torch.cuda.is_available())
 print("Number of GPUs:", torch.cuda.device_count())
+print("Will Override Existing Checkpoints" if args.override_checkpoints else "Will Resume from Existing Checkpoints")
 
 # Example: using a 7B model
 model_name = "mistralai/Mistral-7B-Instruct-v0.3"  # example name
@@ -35,8 +42,8 @@ model = AutoModelForCausalLM.from_pretrained(
 model = prepare_model_for_kbit_training(model)
 
 lora_config = LoraConfig(
-    r=12,
-    lora_alpha=48,
+    r=32,
+    lora_alpha=32*4,
     target_modules=["q_proj", "v_proj"],
     lora_dropout=0.15,
     bias="none"
@@ -52,8 +59,11 @@ def format_example(example):
     s = "[INST] Classify this event as 'signal' or 'background'.\n"
     s += "jets:\n"
     for i, j in enumerate(jets):
-        s += f"  jet{i+1}: px={j['px']:.10f} py={j['py']:.10f} pz={j['pz']:.10f} E={j['E']:.10f}\n"
-    s += f"num_particles: {example['num_particles']}[/INST]"
+        s += f"  jet{i+1}: P_T={j['P_T']:.10f} eta={j['eta']:.10f} phi={j['phi']:.10f} E={j['E']:.10f} m={j['m']:.10f} n_particles={j['n_particles']} P_T_lead={j['P_T_lead']:.10f}\n"
+        for dR_jet, dR_value in j["dR"].items():
+            dR_value = dR_value if dR_value is not None else 0.0
+            s += f"    dR_{dR_jet}={dR_value:.2f}\n"
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}[/INST]"
 
     # HF Trainer expects 'labels'
     return {"input_text": s, "labels": example["type"]}
@@ -62,28 +72,8 @@ def format_example(example):
 ds = ds.map(format_example)
 
 tokenizer.pad_token = tokenizer.eos_token
-def tokenize_example(example):
-    # Tokenize the input text
-    encoding = tokenizer(
-        example["input_text"],
-        truncation=True,
-        padding="max_length",
-        max_length=256
-    )
-    
-    # Tokenize label as a single token
-    label_id = tokenizer(example["labels"], add_special_tokens=False)["input_ids"][0]
-    
-    # Initialize labels to -100 (ignore)
-    labels = [-100] * 256
-    # Put the label token at the last position (or wherever you want)
-    labels[-1] = label_id  # could be [0] or [input_length - 1]
 
-    # Assign *only* the input_ids from the label tokenization
-    encoding["labels"] = labels
-    return encoding
-
-def tokenize_example_refined(example, max_length=256):
+def tokenize_example_refined(example, max_length=512):
     # 1. Construct the full sequence: Prompt + Answer
     # We add a space to ensure tokenization of the answer doesn't merge with the prompt's last token
     prompt = example["input_text"]
@@ -138,7 +128,7 @@ training_args = TrainingArguments(
     output_dir="lora_lhco",
     per_device_train_batch_size=1,
     gradient_accumulation_steps=16, # simulate larger batch size
-    learning_rate=1e-4, # Increased from 3e-5 to 1e-4
+    learning_rate=3e-5, # Decrased from 1e-4 to 3e-5
     num_train_epochs=5,
     save_strategy="steps",
     save_steps=100,
@@ -164,5 +154,5 @@ trainer = Trainer(
 )
 
 trainer.train(
-    resume_from_checkpoint=True
+    resume_from_checkpoint=not args.override_checkpoints
 )

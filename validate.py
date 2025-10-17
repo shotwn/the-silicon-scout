@@ -6,16 +6,25 @@ import json
 from tqdm import tqdm
 import os
 import glob
+from argparse import ArgumentParser
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 base_model_name = "mistralai/Mistral-7B-Instruct-v0.3"
 lora_checkpoint = "lora_lhco/checkpoint-*"  # path to LoRA weights
 
+# Check environment
+arg_parser = ArgumentParser()
+arg_parser.add_argument("--use_checkpoint", type=int, default=0, required=False, help="Give custom checkpoint number to use, or 0 for latest.")
+args = arg_parser.parse_args()
+
 # Get the latest folder in the checkpoint directory
 list_of_dirs = glob.glob(lora_checkpoint)
-latest_dir = max(list_of_dirs, key=os.path.getctime)
-lora_checkpoint = latest_dir
+lora_checkpoint = max(list_of_dirs, key=os.path.getctime)
+
+if args.use_checkpoint != 0:
+    lora_checkpoint = f"lora_lhco/checkpoint-{args.use_checkpoint}"
+
 print("Using LoRA checkpoint:", lora_checkpoint)
 
 # Load tokenizer
@@ -65,11 +74,16 @@ with open(val_file, "r") as f:
             break
 
 def make_prompt(example):
+    jets = example["jets"]
     s = "[INST] Classify this event as 'signal' or 'background'.\n"
     s += "jets:\n"
-    for i, j in enumerate(example["jets"]):
-        s += f"  jet{i+1}: px={j['px']:.10f} py={j['py']:.10f} pz={j['pz']:.10f} E={j['E']:.10f}\n"
-    s += f"num_particles: {example['num_particles']}[/INST]"
+    for i, j in enumerate(jets):
+        s += f"  jet{i+1}: P_T={j['P_T']:.10f} eta={j['eta']:.10f} phi={j['phi']:.10f} E={j['E']:.10f} m={j['m']:.10f} n_particles={j['n_particles']} P_T_lead={j['P_T_lead']:.10f}\n"
+        for dR_jet, dR_value in j["dR"].items():
+            dR_value = dR_value if dR_value is not None else 0.0
+            s += f"    dR_{dR_jet}={dR_value:.2f}\n"
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}[/INST]"
+
     return s
 
 preds = []
@@ -82,7 +96,7 @@ for example in tqdm(val_examples):
         prompt,
         return_tensors="pt",
         truncation=True,
-        max_length=256
+        max_length=512
     )
     input_ids = inputs["input_ids"].to(device)
     attention_mask = inputs["attention_mask"].to(device)
@@ -99,7 +113,7 @@ for example in tqdm(val_examples):
             attention_mask=attention_mask
         )
 
-    """
+    
     print("===")
     print(f"Input length: {inputs['input_ids'].shape[1]}, Output length: {output_ids.shape[1]}")
     print("Raw model output:")
@@ -108,7 +122,7 @@ for example in tqdm(val_examples):
     print("Expected output:")
     print(example["type"])
     print("---\n\n")
-    """
+
 
     # Decode output tokens after prompt
     pred_text = tokenizer.decode(
@@ -122,7 +136,7 @@ for example in tqdm(val_examples):
         pass
         #pred_text = pred_text[inputs['input_ids'].shape[1]:].strip().lower().split()[0]
 
-    print(f"Prompt:\n{prompt}\nPrediction: '{pred_text}'\nTrue label: '{example['type']}'\nResult: {'CORRECT' if pred_text == example['type'].lower() else 'WRONG'}\n---")
+    # print(f"Prompt:\n{prompt}\nPrediction: '{pred_text}'\nTrue label: '{example['type']}'\nResult: {'CORRECT' if pred_text == example['type'].lower() else 'WRONG'}\n---")
     
     # Normalize output
     if "signal" in pred_text:
