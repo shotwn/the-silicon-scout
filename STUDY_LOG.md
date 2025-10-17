@@ -355,7 +355,7 @@ n_particles: 162 M_jj= 495.7804690885698[/INST]signal
 
 Since dR_jet1 (angle between jet 1 to jet 2) and dR_jet2 (angle between jet 2 to jet 1) are the same value, it might be better to modify the prompt to only show dR once in the future iterations.
 
-Before overnight training I tagged this version as v0.2 and ran until checkpoint-400.
+Before overnight training I tagged this version as v0.1.1 and ran until checkpoint-400.
 
 Checkpoint-400
 ```
