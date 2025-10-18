@@ -27,10 +27,12 @@ def load_events(file_path, label):
                 break
     return events
 
-def merge_and_shuffle_events(background_events, signal_events):
-    all_events = background_events + signal_events
-    random.shuffle(all_events)
-    return all_events
+def shuffle_events(events):
+    random.shuffle(events)
+    return events
+
+def merge_events(background_events, signal_events):
+    return background_events + signal_events
 
 def split_events(events, train_ratio=0.8):
     train_size = int(len(events) * train_ratio)
@@ -43,25 +45,16 @@ if __name__ == "__main__":
     signal_events = load_events("output/signal_events.jsonl", "signal")
 
     # Addition
-    # We want 1:1 ratio of background to signal in training/validation
-    min_len = min(len(background_events), len(signal_events))
 
-    all_events = merge_and_shuffle_events(background_events[:min_len], signal_events[:min_len])
 
-    train_events, val_events = split_events(all_events, train_ratio=0.8)
+    # We will generate 2 sets. One with equal number of signal/background, one with original ratio
+    # We will make sure one set doesn't have validation events inside other set's training events
 
-    # Save to output files
-    with open("output/train.jsonl", "w") as f:
-        for event in train_events:
-            f.write(json.dumps(event) + "\n")
+    all_events_original_ratio = merge_events(background_events, signal_events)
+    all_events_original_ratio = shuffle_events(all_events_original_ratio)
 
-    with open("output/val.jsonl", "w") as f:
-        for event in val_events:
-            f.write(json.dumps(event) + "\n")
-
-    # Add new pairs without equal number of signal/background
-    all_events_original_ratio = merge_and_shuffle_events(background_events, signal_events)
     train_events_original_ratio, val_events_original_ratio = split_events(all_events_original_ratio, train_ratio=0.8)
+
     with open("output/train_original_ratio.jsonl", "w") as f:
         for event in train_events_original_ratio:
             f.write(json.dumps(event) + "\n")
@@ -69,6 +62,38 @@ if __name__ == "__main__":
     with open("output/val_original_ratio.jsonl", "w") as f:
         for event in val_events_original_ratio:
             f.write(json.dumps(event) + "\n")
-            
+  
+
+    # To keep validation and training sets disjoint, we will use original ratio validation and training sets
+    # but pick equal number of signal/background for training set only from training set
+    # and for validation set only from validation set
+
+    # Find the minimum count between signal and background in training set
+    train_background = [e for e in train_events_original_ratio if e["type"] == "background"]
+    train_signal = [e for e in train_events_original_ratio if e["type"] == "signal"]
+
+    # Find the minimum count between signal and background in validation set
+    # So we do use all of the small set and pick equal number from the larger set
+    min_train_len = min(len(train_background), len(train_signal))
+    train_events = shuffle_events(merge_events(train_background[:min_train_len], train_signal[:min_train_len]))
+
+    # Similarly for validation set
+    val_background = [e for e in val_events_original_ratio if e["type"] == "background"]
+    val_signal = [e for e in val_events_original_ratio if e["type"] == "signal"]
+    min_val_len = min(len(val_background), len(val_signal))
+    val_events = shuffle_events(merge_events(val_background[:min_val_len], val_signal[:min_val_len]))
+
+    # Note that shuffling again is fine since we already split into train/val sets
+
+    # Save to output files
+    with open("output/train_one_to_one.jsonl", "w") as f:
+        for event in train_events:
+            f.write(json.dumps(event) + "\n")
+
+    with open("output/val_one_to_one.jsonl", "w") as f:
+        for event in val_events:
+            f.write(json.dumps(event) + "\n")
+
+
     print(f"Prepared training data: {len(train_events)} training events, {len(val_events)} validation events.")
     print(f"Prepared training data (original ratio): {len(train_events_original_ratio)} training events, {len(val_events_original_ratio)} validation events.")

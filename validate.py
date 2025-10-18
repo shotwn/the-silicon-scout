@@ -16,7 +16,8 @@ lora_checkpoint = "lora_lhco/checkpoint-*"  # path to LoRA weights
 # Check environment
 arg_parser = ArgumentParser()
 arg_parser.add_argument("--use_checkpoint", type=int, default=0, required=False, help="Give custom checkpoint number to use, or 0 for latest.")
-arg_parser.add_argument("--validation_dataset", type=str, default="output/val.jsonl", required=False, help="Path to validation dataset.")
+arg_parser.add_argument("--validation_dataset", type=str, default="output/val_one_to_one.jsonl", required=False, help="Path to validation dataset.")
+arg_parser.add_argument("--sample_size", type=int, default=1000, required=False, help="Number of samples to use from validation dataset for quick testing. Default is 1000. Use 0 to use all dataset.")
 args = arg_parser.parse_args()
 
 # Get the latest folder in the checkpoint directory
@@ -67,11 +68,11 @@ val_examples = []
 
 with open(val_file, "r") as f:
     i = 0
-    limit_to = 18000  # limit for quick testing; set to None to use all
+    limit_to = args.sample_size  # limit for quick testing; set to None to use all
     for line in f:
         val_examples.append(json.loads(line))
         i += 1
-        if limit_to is not None and i >= limit_to:
+        if limit_to is not None and limit_to != 0 and i >= limit_to:
             break
 
 def make_prompt(example):
@@ -114,7 +115,7 @@ for example in tqdm(val_examples):
             attention_mask=attention_mask
         )
 
-    """
+
     print("===")
     print(f"Input length: {inputs['input_ids'].shape[1]}, Output length: {output_ids.shape[1]}")
     print("Raw model output:")
@@ -123,7 +124,7 @@ for example in tqdm(val_examples):
     print("Expected output:")
     print(example["type"])
     print("---\n\n")
-    """
+
 
     # Decode output tokens after prompt
     pred_text = tokenizer.decode(

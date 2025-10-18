@@ -10,14 +10,15 @@ import json
 import os
 
 # Load the DataFrame from the HDF5 file
-# file_path = "events_anomalydetection_v2.h5"
+file_path = "events_anomalydetection_v2.h5"
 # file_path = "events_anomalydetection_tiny.h5" # For testing with smaller dataset
-file_path = "events_LHCO2020_BlackBox1.h5"
+# file_path = "events_LHCO2020_BlackBox1.h5"
 numpy_read_chunk_size = 100000  # Number of rows to read at a time
 
 size_per_row = 2100  # 2100 data + 1 label will make 2101 columns
 no_label = False # Disables labels, all data outputs as background
-blackbox_label_file = "events_LHCO2020_BlackBox1.masterkey"  # Whether to use external blackbox labels
+#blackbox_label_file = "events_LHCO2020_BlackBox1.masterkey"  # Whether to use external blackbox labels
+blackbox_label_file = None  # Whether to use external blackbox labels
 
 # Load blackbox labels if provided
 blackbox_labels = None
@@ -34,7 +35,7 @@ def get_is_signal_label_from_event(event_order_index, event):
     if blackbox_labels:
         return True if blackbox_labels[event_order_index] == "1.0" else False
     else:
-        return event[size_per_row]  # Last column is the label
+        return event[size_per_row]  # Last column is the label. Notice this will look for (size_per_row + 1)st item in 0-indexing
 
 def process_events_chunk(df, start_index=0):
     # Store jets seperately depending on whether they are signal or background
@@ -114,7 +115,7 @@ def process_events_chunk(df, start_index=0):
         constituent_array = cluster.constituents(min_pt=1200.0)
         
 
-        # max_PT_indices[i] -> jet[i]'s leading constituent index in constituent_array
+        # max_PT_indices[i] -> jets[i]'s leading constituent index in constituent_array
         max_PT_indices = awk.argmax(constituent_array.pt, axis=1)
         
         jets = []

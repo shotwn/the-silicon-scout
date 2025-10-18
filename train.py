@@ -1,9 +1,12 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import BitsAndBytesConfig, TrainingArguments, Trainer
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from torch import nn
 from datasets import load_dataset
 import torch
 from argparse import ArgumentParser
+from numeric_fusion_adapter import NumericFusionAdapter
+from typing import Any, Optional, Union
 
 # Check environment
 arg_parser = ArgumentParser()
@@ -41,6 +44,12 @@ model = AutoModelForCausalLM.from_pretrained(
 
 model = prepare_model_for_kbit_training(model)
 
+# Add Numeric Fusion Adapter
+numeric_dim = 16 # See data processing for chosen numeric features
+hidden_size = model.config.hidden_size
+model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim).to(model.device)
+
+
 lora_config = LoraConfig(
     r=32,
     lora_alpha=32*4,
@@ -52,7 +61,7 @@ lora_config = LoraConfig(
 model = get_peft_model(model, lora_config)
 
 # Load dataset
-ds = load_dataset("json", data_files={"train":"output/train.jsonl", "validation":"output/val.jsonl"})
+ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
 
 def format_example(example):
     jets = example["jets"]
@@ -116,6 +125,42 @@ def tokenize_example_refined(example, max_length=512):
     
     # Assign the final labels array
     full_encoding["labels"] = labels
+
+    # ===== Build numeric vector =====
+    # Use fixed order to extract numeric features
+    # 0 -> jet1_P_T, 1 -> jet1_eta, 2 -> jet1_phi, 3 -> jet1_E, 4 -> jet1_m, 5 -> jet1_n_particles, 6 -> jet1_P_T_lead
+    # 7 -> jet2_P_T, 8 -> jet2_eta, 9 -> jet2_phi, 10 -> jet2_E, 11 -> jet2_m, 12 -> jet2_n_particles, 13 -> jet2_P_T_lead
+    # 14 -> n_particles, 15 -> M_jj
+    # No 3rd jet info for now
+    # No dR info for now
+    # So total numeric_dim = 16
+    # You can pick as many features as you want; here is an example:
+    numeric_vector = [ 0.0 ] * 16  # Initialize with zeros
+    jets = example["jets"]
+    # Jet 1
+    if len(jets) > 0:
+        numeric_vector[0] = jets[0]["P_T"]
+        numeric_vector[1] = jets[0]["eta"]
+        numeric_vector[2] = jets[0]["phi"]
+        numeric_vector[3] = jets[0]["E"]
+        numeric_vector[4] = jets[0]["m"]
+        numeric_vector[5] = jets[0]["n_particles"]
+        numeric_vector[6] = jets[0]["P_T_lead"]
+
+    # Jet 2
+    if len(jets) > 1:
+        numeric_vector[7] = jets[1]["P_T"]
+        numeric_vector[8] = jets[1]["eta"]
+        numeric_vector[9] = jets[1]["phi"]
+        numeric_vector[10] = jets[1]["E"]
+        numeric_vector[11] = jets[1]["m"]
+        numeric_vector[12] = jets[1]["n_particles"]
+        numeric_vector[13] = jets[1]["P_T_lead"]
+
+    # Global features
+    numeric_vector[14] = example["n_particles"]
+    numeric_vector[15] = example["M_jj"]
+
     return full_encoding
 
 tokenized_ds = ds.map(tokenize_example_refined, batched=False)
@@ -143,7 +188,46 @@ training_args = TrainingArguments(
 from bitsandbytes.optim import AdamW8bit
 optimizer = AdamW8bit(model.parameters(), lr=training_args.learning_rate)
 
-trainer = Trainer(
+# 🧩 Custom Trainer to integrate numeric adapter
+class NumericTrainer(Trainer):
+    def compute_loss(
+        self,
+        model: nn.Module,
+        inputs: dict[str, Union[torch.Tensor, Any]],
+        return_outputs: bool = False,
+        num_items_in_batch: Optional[torch.Tensor] = None,
+    ):
+        # Extract numeric features
+        numeric_features = inputs.pop("numeric_features", None)
+        input_ids = inputs.pop("input_ids")
+        attention_mask = inputs.pop("attention_mask")
+        labels = inputs.pop("labels")
+
+        # ✅ Use public API to get embeddings
+        embedding_layer = model.get_input_embeddings()
+        inputs_embeds = embedding_layer(input_ids)
+
+        # Prepend numeric embeddings if available
+        if numeric_features is not None:
+            numeric_embeds = model.numeric_adapter(numeric_features.to(model.device))
+            inputs_embeds = torch.cat([numeric_embeds, inputs_embeds], dim=1)
+            attention_mask = torch.cat(
+                [torch.ones((attention_mask.shape[0], 1), device=attention_mask.device), attention_mask],
+                dim=1
+            )
+
+        # Forward pass
+        outputs = model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            labels=labels,
+            **inputs  # any extra keys are forwarded safely
+        )
+
+        loss = outputs.loss
+        return (loss, outputs) if return_outputs else loss
+
+trainer = NumericTrainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_ds["train"],

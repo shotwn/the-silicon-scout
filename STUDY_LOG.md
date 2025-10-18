@@ -459,3 +459,59 @@ Still it is good news to see the model did not collapse on signal or background 
 Perhaps training with imbalanced dataset from start would yield better results on black-box dataset.
 
 Because I enhanced the data processing and received statistically significant results, I tagged this version as v0.1.3. 
+
+### New Data Processing
+I modified the data processing to make sure there is no overlap between training and validation/test datasets even between balanced and inbalanced datasets.
+
+I first create the original ratio dataset, then extract a 1:1 ratio dataset from it.
+
+### Numeric Fusion Adapter
+After some research, I created a numeric fusion adapter with some LLM help. I go line by line with API docs to understand what was recommended to me and it takes multiple attempts to make everything at least "run". So I am not sure about its parameters yet but it is a start. 
+
+This is the numerical layer I was thinking about before. Appearently we can make the model learn numerical features by adding a small MLP layer on top of the LLM model. This method enhances the first token embeddings with numerical features during training.
+
+It is recommended to use this adapter during validation/inference to improve performance on numerical tasks. But this defeats the purpose of LLM only approach for me. Perhaps in the future I can make a reasoning logic. So the model can prepare the data in a way where a simple external regex tool can extract the numerical features and finally push them in to the model to get more precise results.
+
+But even without using the adapter during validation, I hope the model was *somehow* able to match the tokens with provided numerical values. I kept the validation script as same as it was (only textual prompt input) and I received the following results.
+
+#### Checkpoint-300 with Numeric Fusion Adapter (no adapter during validation)
+With original ratio dataset (1:10 signal to background)
+```
+Number of correct background predictions: 840 out of 918
+Number of correct signal predictions: 59 out of 82
+Validation Accuracy: 0.899
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.92      0.94       918
+      signal       0.43      0.72      0.54        82
+
+    accuracy                           0.90      1000
+   macro avg       0.70      0.82      0.74      1000
+weighted avg       0.93      0.90      0.91      1000
+```
+
+Eventhough training takes longer with the adapter, likely because my limited computational resources, results seems promising. With checkpoint 300 we are already reaching 89.9% accuracy on imbalanced dataset. 
+
+I also ran the same model on 1:1 dataset. 
+
+```
+Number of correct background predictions: 464 out of 501
+Number of correct signal predictions: 330 out of 499
+Validation Accuracy: 0.794
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.73      0.93      0.82       501
+      signal       0.90      0.66      0.76       499
+
+    accuracy                           0.79      1000
+   macro avg       0.82      0.79      0.79      1000
+weighted avg       0.82      0.79      0.79      1000
+```
+
+This is surprising. I expected the model to perform better on 1:1 dataset but it is performing better on imbalanced dataset. At least on 1:1 dataset and at Checkpoint-300, accuracy seems same as previous attempts without the adapter.
+
+Still, the day is over. So this setup is the new candidate for overnight training.
+
+I will tag this version as v0.2.0 since it is a significant change in the training and data preparation process.
