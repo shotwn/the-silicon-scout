@@ -58,3 +58,17 @@ if __name__ == "__main__":
     with open("output/val.jsonl", "w") as f:
         for event in val_events:
             f.write(json.dumps(event) + "\n")
+
+    # Add new pairs without equal number of signal/background
+    all_events_original_ratio = merge_and_shuffle_events(background_events, signal_events)
+    train_events_original_ratio, val_events_original_ratio = split_events(all_events_original_ratio, train_ratio=0.8)
+    with open("output/train_original_ratio.jsonl", "w") as f:
+        for event in train_events_original_ratio:
+            f.write(json.dumps(event) + "\n")
+
+    with open("output/val_original_ratio.jsonl", "w") as f:
+        for event in val_events_original_ratio:
+            f.write(json.dumps(event) + "\n")
+            
+    print(f"Prepared training data: {len(train_events)} training events, {len(val_events)} validation events.")
+    print(f"Prepared training data (original ratio): {len(train_events_original_ratio)} training events, {len(val_events_original_ratio)} validation events.")

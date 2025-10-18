@@ -5,3 +5,4 @@ lora_lhco/
 __pycache__/
 *.pyc
 kept_checkpoints/
+*.masterKey

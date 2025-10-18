@@ -16,6 +16,7 @@ lora_checkpoint = "lora_lhco/checkpoint-*"  # path to LoRA weights
 # Check environment
 arg_parser = ArgumentParser()
 arg_parser.add_argument("--use_checkpoint", type=int, default=0, required=False, help="Give custom checkpoint number to use, or 0 for latest.")
+arg_parser.add_argument("--validation_dataset", type=str, default="output/val.jsonl", required=False, help="Path to validation dataset.")
 args = arg_parser.parse_args()
 
 # Get the latest folder in the checkpoint directory
@@ -61,12 +62,12 @@ model.eval()
 print("Model and tokenizer loaded.")
 
 
-val_file = "output/val.jsonl"
+val_file = args.validation_dataset
 val_examples = []
 
 with open(val_file, "r") as f:
     i = 0
-    limit_to = 1000  # limit for quick testing; set to None to use all
+    limit_to = 18000  # limit for quick testing; set to None to use all
     for line in f:
         val_examples.append(json.loads(line))
         i += 1
@@ -113,7 +114,7 @@ for example in tqdm(val_examples):
             attention_mask=attention_mask
         )
 
-    
+    """
     print("===")
     print(f"Input length: {inputs['input_ids'].shape[1]}, Output length: {output_ids.shape[1]}")
     print("Raw model output:")
@@ -122,7 +123,7 @@ for example in tqdm(val_examples):
     print("Expected output:")
     print(example["type"])
     print("---\n\n")
-
+    """
 
     # Decode output tokens after prompt
     pred_text = tokenizer.decode(
@@ -152,6 +153,12 @@ for example in tqdm(val_examples):
     preds.append(pred)
     labels.append(example["type"].lower())
 
+# Results
+# Number of background, signal or unknown predictions with correct labels
+for target in target_names:
+    num_total = labels.count(target)
+    num_correct = sum(1 for p, l in zip(preds, labels) if p == target and l == target)
+    print(f'Number of correct {target} predictions: {num_correct} out of {num_total}')
 
 # Simple accuracy
 accuracy = sum(p == l for p, l in zip(preds, labels)) / len(labels)
@@ -159,7 +166,10 @@ print("Validation Accuracy:", accuracy)
 
 # Print empty predictions
 num_unknown = sum(1 for p in preds if p == "unknown")
-print("Number of unknown predictions:", num_unknown)
+if num_unknown > 0:
+    print("WARNING: Number of unknown predictions:", num_unknown)
+else:
+    print("All predictions classified as 'signal' or 'background'.")
 
 # Optional: more metrics with sklearn
 from sklearn.metrics import classification_report

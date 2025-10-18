@@ -376,3 +376,86 @@ I would be excited but I did see 83% accuracy before and training is relatively 
 I read more about putting a numberical MLP wrapper on top of the model. This could potentially help in capturing the complex relationships between the features more effectively. 
 
 Also all logic behind using LLM was for natural language comprehension and explanations. So soon I will have to try to teach the model to explain its reasoning too.
+
+Checkpoint-500
+```
+Validation Accuracy: 0.839
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.88      0.78      0.83       494
+      signal       0.81      0.90      0.85       506
+
+    accuracy                           0.84      1000
+   macro avg       0.84      0.84      0.84      1000
+weighted avg       0.84      0.84      0.84      1000
+```
+
+## 2025-10-18
+### After Overnight Training
+Checkpoint-2500
+```
+Validation Accuracy: 0.862
+Number of unknown predictions: 0
+              precision    recall  f1-score   support
+
+  background       0.79      0.99      0.88       494
+      signal       0.99      0.74      0.84       506
+
+    accuracy                           0.86      1000
+   macro avg       0.89      0.86      0.86      1000
+weighted avg       0.89      0.86      0.86      1000
+```
+
+86% accuracy over 1:1 dataset is showing we are still hitting diminshing returns.
+
+Then I wanted to see what will this model do with the original imbalanced dataset (1:10 signal to background ratio).
+
+Checkpoint-2500 on imbalanced dataset
+```
+Number of correct background predictions: 901 out of 906
+Number of correct signal predictions: 63 out of 94
+Validation Accuracy: 0.964
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98       906
+      signal       0.93      0.67      0.78        94
+
+    accuracy                           0.96      1000
+   macro avg       0.95      0.83      0.88      1000
+weighted avg       0.96      0.96      0.96      1000
+```
+
+This is a promising result. 96.4% accuracy on imbalanced dataset with 1:10 signal to background ratio. **BUT my guess is that that 1:10 ratio validation dataset did include too many events from 1:1 training dataset.** So model was able to memorize those events and give good results. I can't change this dataset now since I would need to re-train the model from scratch.
+
+Still we are observing a good recognition considering that the model is purely LLM based. Diminishing returns are still present but I will mark this as a progress.
+
+Perhaps before doing any more changes, I should try my chances on the black-box datasets ?
+
+### Black Box Dataset Testing
+I prepared the black-box dataset in the same way as the R&D dataset. Jet clustering and feature extraction was done the same way. Because the challenge was done and master key was available, I was able to get the labels for validation.
+
+Checkpoint-2500 on black-box dataset
+```
+Number of correct background predictions: 17581 out of 17979
+Number of correct signal predictions: 6 out of 21
+Validation Accuracy: 0.9770555555555556
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99     17979
+      signal       0.01      0.29      0.03        21
+
+    accuracy                           0.98     18000
+   macro avg       0.51      0.63      0.51     18000
+weighted avg       1.00      0.98      0.99     18000
+```
+
+Eventhough accuracy is high (97.7%) due to imbalanced dataset, model was only able to identify 6 out of 21 signal events. This is not a good enough result, by comparison we know LHCO contenders were generally estimating more signals than there is, rather than the other way around.
+
+Still it is good news to see the model did not collapse on signal or background only predictions and was able to perform both in 1:1 and 1:10 R&D datasets as well as black-box dataset. This indicates statistically significant learning has taken place.
+
+Perhaps training with imbalanced dataset from start would yield better results on black-box dataset.
+
+Because I enhanced the data processing and received statistically significant results, I tagged this version as v0.1.3. 

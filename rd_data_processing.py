@@ -9,6 +9,32 @@ vector.register_awkward()
 import json
 import os
 
+# Load the DataFrame from the HDF5 file
+# file_path = "events_anomalydetection_v2.h5"
+# file_path = "events_anomalydetection_tiny.h5" # For testing with smaller dataset
+file_path = "events_LHCO2020_BlackBox1.h5"
+numpy_read_chunk_size = 100000  # Number of rows to read at a time
+
+size_per_row = 2100  # 2100 data + 1 label will make 2101 columns
+no_label = False # Disables labels, all data outputs as background
+blackbox_label_file = "events_LHCO2020_BlackBox1.masterkey"  # Whether to use external blackbox labels
+
+# Load blackbox labels if provided
+blackbox_labels = None
+if blackbox_label_file and not no_label:
+    with open(blackbox_label_file, "r") as f:
+        # Blackbox labels are simple ASCII text files with one label per line
+        blackbox_labels = f.read().splitlines()
+
+
+def get_is_signal_label_from_event(event_order_index, event):
+    if no_label:
+        return None
+    
+    if blackbox_labels:
+        return True if blackbox_labels[event_order_index] == "1.0" else False
+    else:
+        return event[size_per_row]  # Last column is the label
 
 def process_events_chunk(df, start_index=0):
     # Store jets seperately depending on whether they are signal or background
@@ -41,10 +67,11 @@ def process_events_chunk(df, start_index=0):
         # Each row of events_combined is a collision event
         # Index 2100 is a tag or label that indicates whether the event is background (0) or signal (1)
         # Background events are normal events, while signal events are rare events that may indicate new physics phenomena
+        # Carried this logic to a function to handle no_label and blackbox labels
+        is_signal = get_is_signal_label_from_event(i, events_combined[i])
 
-        is_signal = events_combined[i][2100] # Get the label for the event
         # Data starts as background and ends as signals, events 1098978 to 1099999 are signals
-        event_data = events_combined[i][:2100] # Get the event data excluding the label
+        event_data = events_combined[i][:size_per_row] # Get the event data excluding the label
 
         """
         From LHC Olympics 2020 website:
@@ -134,12 +161,6 @@ def process_events_chunk(df, start_index=0):
     write_events_to_file(signal_events, "signal")
     write_events_to_file(background_events, "background")
 
-
-
-# Load the DataFrame from the HDF5 file
-file_path = "events_anomalydetection_v2.h5"
-# file_path = "events_anomalydetection_tiny.h5" # For testing with smaller dataset
-numpy_read_chunk_size = 100000  # Number of rows to read at a time
 
 def generator():
     i=0
