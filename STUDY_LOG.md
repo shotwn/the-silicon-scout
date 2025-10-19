@@ -427,7 +427,7 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       0.96      0.96      0.96      1000
 ```
 
-This is a promising result. 96.4% accuracy on imbalanced dataset with 1:10 signal to background ratio. **BUT my guess is that that 1:10 ratio validation dataset did include too many events from 1:1 training dataset.** So model was able to memorize those events and give good results. I can't change this dataset now since I would need to re-train the model from scratch.
+This is a promising result. 96.4% accuracy on imbalanced dataset with 1:10 signal to background ratio. **BUT my guess is that that 1:10 ratio validation dataset did include too many events from 1:1 training dataset.** So model was able to memorize those events and give good results. I can't change this dataset at the moment since I would need to re-train the model from scratch.
 
 Still we are observing a good recognition considering that the model is purely LLM based. Diminishing returns are still present but I will mark this as a progress.
 
@@ -515,3 +515,70 @@ This is surprising. I expected the model to perform better on 1:1 dataset but it
 Still, the day is over. So this setup is the new candidate for overnight training.
 
 I will tag this version as v0.2.0 since it is a significant change in the training and data preparation process.
+
+## 2025-10-19
+### After Overnight Training with Numeric Fusion Adapter
+
+#### Checkpoint-1600
+##### 1:1 Dataset at 1000 samples
+```
+Number of correct background predictions: 452 out of 501
+Number of correct signal predictions: 457 out of 499
+Validation Accuracy: 0.909
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.91      0.90      0.91       501
+      signal       0.90      0.92      0.91       499
+
+    accuracy                           0.91      1000
+   macro avg       0.91      0.91      0.91      1000
+weighted avg       0.91      0.91      0.91      1000
+```
+This is a good improvement. 90.9% accuracy on 1:1 dataset with numeric fusion adapter.
+
+I also ran the same model on imbalanced dataset. With 2000 validation samples (1:10 signal to background ratio).
+
+##### 1:10 Dataset at 2000 samples
+```
+Number of correct background predictions: 1610 out of 1816
+Number of correct signal predictions: 170 out of 184
+Validation Accuracy: 0.89
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.89      0.94      1816
+      signal       0.45      0.92      0.61       184
+
+    accuracy                           0.89      2000
+   macro avg       0.72      0.91      0.77      2000
+weighted avg       0.94      0.89      0.91      2000
+```
+
+##### Black-box 1 Dataset on Original Ratio
+```
+Number of correct background predictions: 16744 out of 19982
+Number of correct signal predictions: 14 out of 18
+Validation Accuracy: 0.8379
+WARNING: Number of unknown predictions: 1
+              precision    recall  f1-score   support
+
+  background       1.00      0.84      0.91     19982
+      signal       0.00      0.78      0.01        18
+     unknown       0.00      0.00      0.00         0
+
+    accuracy                           0.84     20000
+   macro avg       0.33      0.54      0.31     20000
+weighted avg       1.00      0.84      0.91     20000
+```
+These results are promising. 
+Model is able to generalize better with numeric fusion adapter eventhough we are not giving seperate numeric input. Previous blackbox test was only able to identify 6 out of 21 signal events. Now it is able to identify 14 out of 18 signal events.
+
+I will tag this version as v0.2.1 before doing some changes to the validation script.
+
+### Next Steps
+- Modify validation script to use numeric fusion adapter during validation too. This should improve results further.
+
+If numerical adapter during validation improves results significantly, next steps would be:
+- Create a regex based numerical extractor to extract numerical features from the prompt.
+- Use LLM to format the incoming data in to a format that can be parsed by the numerical extractor.

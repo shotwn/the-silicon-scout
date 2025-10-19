@@ -17,7 +17,7 @@ numpy_read_chunk_size = 100000  # Number of rows to read at a time
 
 size_per_row = 2100  # 2100 data + 1 label will make 2101 columns
 no_label = False # Disables labels, all data outputs as background
-#blackbox_label_file = "events_LHCO2020_BlackBox1.masterkey"  # Whether to use external blackbox labels
+# blackbox_label_file = "events_LHCO2020_BlackBox1.masterkey"  # Whether to use external blackbox labels
 blackbox_label_file = None  # Whether to use external blackbox labels
 
 # Load blackbox labels if provided

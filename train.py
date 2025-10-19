@@ -139,27 +139,27 @@ def tokenize_example_refined(example, max_length=512):
     jets = example["jets"]
     # Jet 1
     if len(jets) > 0:
-        numeric_vector[0] = jets[0]["P_T"]
-        numeric_vector[1] = jets[0]["eta"]
-        numeric_vector[2] = jets[0]["phi"]
-        numeric_vector[3] = jets[0]["E"]
-        numeric_vector[4] = jets[0]["m"]
-        numeric_vector[5] = jets[0]["n_particles"]
-        numeric_vector[6] = jets[0]["P_T_lead"]
+        numeric_vector[0] = float(jets[0]["P_T"]) / 1000.0  # Normalize P_T
+        numeric_vector[1] = float(jets[0]["eta"]) # eta can be negative
+        numeric_vector[2] = float(jets[0]["phi"]) # phi can be negative
+        numeric_vector[3] = float(jets[0]["E"]) / 1000.0  # Normalize E
+        numeric_vector[4] = float(jets[0]["m"]) / 100.0  # Normalize mass
+        numeric_vector[5] = float(jets[0]["n_particles"]) / 100.0  # Normalize n_particles
+        numeric_vector[6] = float(jets[0]["P_T_lead"]) / 1000.0  # Normalize P_T_lead
 
     # Jet 2
     if len(jets) > 1:
-        numeric_vector[7] = jets[1]["P_T"]
-        numeric_vector[8] = jets[1]["eta"]
-        numeric_vector[9] = jets[1]["phi"]
-        numeric_vector[10] = jets[1]["E"]
-        numeric_vector[11] = jets[1]["m"]
-        numeric_vector[12] = jets[1]["n_particles"]
-        numeric_vector[13] = jets[1]["P_T_lead"]
+        numeric_vector[7] = float(jets[1]["P_T"]) / 1000.0  # Normalize P_T
+        numeric_vector[8] = float(jets[1]["eta"]) # eta can be negative
+        numeric_vector[9] = float(jets[1]["phi"]) # phi can be negative
+        numeric_vector[10] = float(jets[1]["E"]) / 1000.0  # Normalize E
+        numeric_vector[11] = float(jets[1]["m"]) / 100.0  # Normalize mass
+        numeric_vector[12] = float(jets[1]["n_particles"]) / 100.0  # Normalize n_particles
+        numeric_vector[13] = float(jets[1]["P_T_lead"]) / 1000.0  # Normalize P_T_lead
 
     # Global features
-    numeric_vector[14] = example["n_particles"]
-    numeric_vector[15] = example["M_jj"]
+    numeric_vector[14] = float(example["n_particles"]) / 200.0  # Normalize total n_particles
+    numeric_vector[15] = float(example["M_jj"]) / 1000.0  # Normalize M_jj
 
     return full_encoding
 
@@ -178,7 +178,7 @@ training_args = TrainingArguments(
     save_strategy="steps",
     save_steps=100,
     eval_steps=100,
-    logging_steps=50,
+    logging_steps=30,
     gradient_checkpointing=True, # Transformer was warning me to set this.
     gradient_checkpointing_kwargs={'use_reentrant': False},  # Transformer was warning me to set this. Appearently in future versions it will default to False.
     max_grad_norm=1.0 # Added gradient clipping, after custom weighted loss we were having huge grad_norms (>500) in initial checkpoints
@@ -209,12 +209,25 @@ class NumericTrainer(Trainer):
 
         # Prepend numeric embeddings if available
         if numeric_features is not None:
-            numeric_embeds = model.numeric_adapter(numeric_features.to(model.device))
+            numeric_embeds = model.numeric_fusion_adapter(numeric_features.to(model.device))
+            
+            # 1. Extend and Fuse the Inputs/Masks
             inputs_embeds = torch.cat([numeric_embeds, inputs_embeds], dim=1)
             attention_mask = torch.cat(
                 [torch.ones((attention_mask.shape[0], 1), device=attention_mask.device), attention_mask],
                 dim=1
             )
+            
+            # 2. 💡 CRITICAL: Extend and Mask the Labels 💡
+            # Create a -100 tensor (mask) of shape (Batch_size, 1)
+            numeric_labels_mask = torch.full(
+                (labels.shape[0], 1), # (B, 1)
+                -100, 
+                dtype=labels.dtype, 
+                device=labels.device
+            )
+            # Prepend the mask to the original labels
+            labels = torch.cat([numeric_labels_mask, labels], dim=1)
 
         # Forward pass
         outputs = model(

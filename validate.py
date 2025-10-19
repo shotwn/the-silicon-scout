@@ -18,6 +18,7 @@ arg_parser = ArgumentParser()
 arg_parser.add_argument("--use_checkpoint", type=int, default=0, required=False, help="Give custom checkpoint number to use, or 0 for latest.")
 arg_parser.add_argument("--validation_dataset", type=str, default="output/val_one_to_one.jsonl", required=False, help="Path to validation dataset.")
 arg_parser.add_argument("--sample_size", type=int, default=1000, required=False, help="Number of samples to use from validation dataset for quick testing. Default is 1000. Use 0 to use all dataset.")
+arg_parser.add_argument("--show_generated", action="store_true", help="If set, will show the full generated text from the model.")
 args = arg_parser.parse_args()
 
 # Get the latest folder in the checkpoint directory
@@ -115,15 +116,15 @@ for example in tqdm(val_examples):
             attention_mask=attention_mask
         )
 
-
-    print("===")
-    print(f"Input length: {inputs['input_ids'].shape[1]}, Output length: {output_ids.shape[1]}")
-    print("Raw model output:")
-    print(tokenizer.decode(output_ids[0], skip_special_tokens=False))
-    print("---")
-    print("Expected output:")
-    print(example["type"])
-    print("---\n\n")
+    if args.show_generated:
+        print("===")
+        print(f"Input length: {inputs['input_ids'].shape[1]}, Output length: {output_ids.shape[1]}")
+        print("Raw model output:")
+        print(tokenizer.decode(output_ids[0], skip_special_tokens=False))
+        print("---")
+        print("Expected output:")
+        print(example["type"])
+        print("---\n\n")
 
 
     # Decode output tokens after prompt
