@@ -5,12 +5,14 @@ from torch import nn
 from datasets import load_dataset
 import torch
 from argparse import ArgumentParser
-from numeric_fusion_adapter import NumericFusionAdapter
+from numeric_fusion_adapter import NumericFusionAdapter, NumericFeatureCollator
 from typing import Any, Optional, Union
+import os
 
 # Check environment
 arg_parser = ArgumentParser()
 arg_parser.add_argument("--override_checkpoints", type=bool, default=False, required=False, help="Whether to continue training from existing checkpoints or override them.")
+arg_parser.add_argument("--output_dir", type=str, default="lora_lhco", required=False, help="Directory to save LoRA checkpoints and numeric fusion adapter weights.")
 args = arg_parser.parse_args()
 
 print("PyTorch version:", torch.__version__)
@@ -25,7 +27,7 @@ bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_use_double_quant=True,
     bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype="float16"
+    bnb_4bit_compute_dtype=torch.float16
 )
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -47,7 +49,7 @@ model = prepare_model_for_kbit_training(model)
 # Add Numeric Fusion Adapter
 numeric_dim = 16 # See data processing for chosen numeric features
 hidden_size = model.config.hidden_size
-model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim).to(model.device)
+model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim, dtype=torch.float16, device=model.device).to(model.device)
 
 
 lora_config = LoraConfig(
@@ -59,6 +61,11 @@ lora_config = LoraConfig(
 )
 
 model = get_peft_model(model, lora_config)
+# Heck if I know, it was needed to make max_grad_norm work
+model.enable_input_require_grads()
+
+# Important: Set tokenizer.pad_token to eos_token
+tokenizer.pad_token = tokenizer.eos_token
 
 # Load dataset
 ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
@@ -72,15 +79,19 @@ def format_example(example):
         for dR_jet, dR_value in j["dR"].items():
             dR_value = dR_value if dR_value is not None else 0.0
             s += f"    dR_{dR_jet}={dR_value:.2f}\n"
-    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}[/INST]"
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}[/INST]\n"
 
-    # HF Trainer expects 'labels'
-    return {"input_text": s, "labels": example["type"]}
+    # HF Trainer expects 'labels' key for supervised fine-tuning
+    return {
+        "input_text": s,
+        "labels": example["type"], 
+        # !Bugfix: jets, n_particles, M_jj also needed for numeric features extraction
+        "jets": example["jets"],
+        "n_particles": example["n_particles"], 
+        "M_jj": example["M_jj"]
+    }
 
-
-ds = ds.map(format_example)
-
-tokenizer.pad_token = tokenizer.eos_token
+ds = ds.map(format_example, load_from_cache_file=not args.override_checkpoints)
 
 def tokenize_example_refined(example, max_length=512):
     # 1. Construct the full sequence: Prompt + Answer
@@ -106,7 +117,7 @@ def tokenize_example_refined(example, max_length=512):
         full_text,
         truncation=True,
         padding="max_length",
-        max_length=max_length
+        max_length=max_length,
     )
 
     # 4. Construct the Labels Array
@@ -161,16 +172,32 @@ def tokenize_example_refined(example, max_length=512):
     numeric_vector[14] = float(example["n_particles"]) / 200.0  # Normalize total n_particles
     numeric_vector[15] = float(example["M_jj"]) / 1000.0  # Normalize M_jj
 
+    full_encoding["numeric_features"] = numeric_vector
+    full_encoding["my_test_field"] = 12345  # For debugging
+
     return full_encoding
 
-tokenized_ds = ds.map(tokenize_example_refined, batched=False)
+# Tokenize the dataset
+# load_from_cache_file is set based on whether we are overriding checkpoints or not
+# If we are overriding, we want to reprocess the data
+tokenized_ds = ds.map(
+    tokenize_example_refined, 
+    batched=False, 
+    load_from_cache_file=not args.override_checkpoints, 
+    remove_columns=ds["train"].column_names,
+)
 
-# Heck if I know, it was needed to make max_grad_norm work
-model.enable_input_require_grads()
+# Collator is not receiving numeric features if we don't set the format here
+# This might be unnecesary now, culprit was "remove_unused_columns" in Trainer args
+tokenized_ds.set_format(
+    type="torch", 
+    columns=["input_ids", "attention_mask", "labels", "numeric_features"],
+    output_all_columns=False
+)
 
 # Setup training
 training_args = TrainingArguments(
-    output_dir="lora_lhco",
+    output_dir=args.output_dir,
     per_device_train_batch_size=1,
     gradient_accumulation_steps=16, # simulate larger batch size
     learning_rate=3e-5, # Decrased from 1e-4 to 3e-5
@@ -181,7 +208,9 @@ training_args = TrainingArguments(
     logging_steps=30,
     gradient_checkpointing=True, # Transformer was warning me to set this.
     gradient_checkpointing_kwargs={'use_reentrant': False},  # Transformer was warning me to set this. Appearently in future versions it will default to False.
-    max_grad_norm=1.0 # Added gradient clipping, after custom weighted loss we were having huge grad_norms (>500) in initial checkpoints
+    max_grad_norm=1.0, # Added gradient clipping, after custom weighted loss we were having huge grad_norms (>500) in initial checkpoints
+    #! Took forever to find. Important to keep numeric_features, make sure to clean other unused columns
+    remove_unused_columns=False, 
 )
 
 # Use 8-bit Adam optimizer
@@ -209,7 +238,13 @@ class NumericTrainer(Trainer):
 
         # Prepend numeric embeddings if available
         if numeric_features is not None:
-            numeric_embeds = model.numeric_fusion_adapter(numeric_features.to(model.device))
+            # device = next(model.parameters()).device
+            # numeric_features = torch.tensor(numeric_features, dtype=torch.float32, device=device)
+            # This is now done in the NumericFeatureCollator.
+            # This ensures numeric_features is already a tensor of correct dtype and device.
+            # Plus improves performance by avoiding device transfers in the training loop.
+            numeric_embeds = model.numeric_fusion_adapter(numeric_features)
+
             
             # 1. Extend and Fuse the Inputs/Masks
             inputs_embeds = torch.cat([numeric_embeds, inputs_embeds], dim=1)
@@ -229,6 +264,12 @@ class NumericTrainer(Trainer):
             # Prepend the mask to the original labels
             labels = torch.cat([numeric_labels_mask, labels], dim=1)
 
+        # 3. Sanity check
+        assert inputs_embeds.shape[1] == attention_mask.shape[1] == labels.shape[1], \
+            f"Shape mismatch: embeds {inputs_embeds.shape}, mask {attention_mask.shape}, labels {labels.shape}"
+
+
+
         # Forward pass
         outputs = model(
             inputs_embeds=inputs_embeds,
@@ -239,6 +280,27 @@ class NumericTrainer(Trainer):
 
         loss = outputs.loss
         return (loss, outputs) if return_outputs else loss
+    
+    # Override _save to manually save the custom adapter weights
+    def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        # 1. Call the base class save method. This saves the LoRA weights and Trainer state.
+        super()._save(output_dir, state_dict)
+        
+        # 2. Manually save the state dict of the custom adapter
+        # This check ensures we only save on the primary process
+        if self.args.should_save:
+            output_dir = output_dir if output_dir is not None else self.args.output_dir
+            
+            # Retrieve the adapter module attached to the model
+            # Note: self.model is the PeftModel which holds the base model with our adapter attached
+            adapter_module = self.model.numeric_fusion_adapter
+            
+            # Construct the path to save the custom module weights
+            adapter_path = os.path.join(output_dir, "numeric_fusion_adapter.bin")
+            
+            # Save the state dictionary using torch
+            torch.save(adapter_module.state_dict(), adapter_path)
+            print(f"Custom numeric adapter saved to {adapter_path}")
 
 trainer = NumericTrainer(
     model=model,
@@ -247,6 +309,7 @@ trainer = NumericTrainer(
     eval_dataset=tokenized_ds["validation"],
     tokenizer=tokenizer,
     optimizers=(optimizer, None),  # use custom 8-bit optimizer
+    data_collator=NumericFeatureCollator(),
     # compute_loss_func=compute_loss  # our custom loss function
 )
 

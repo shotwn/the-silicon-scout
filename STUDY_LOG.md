@@ -582,3 +582,22 @@ I will tag this version as v0.2.1 before doing some changes to the validation sc
 If numerical adapter during validation improves results significantly, next steps would be:
 - Create a regex based numerical extractor to extract numerical features from the prompt.
 - Use LLM to format the incoming data in to a format that can be parsed by the numerical extractor.
+
+### A Crucial Mistake
+As I was writing the new validation script, I realized I made a crucial mistake, I did not save the weights for the numeric fusion adapter during training. So I can't use the numeric inputs during validation. I have to re-train the model from scratch to save the adapter weights too.
+
+I fixed the training and validation scripts to save and load the adapter weights respectively. I will start a new training run with the fixed scripts.
+
+### Two Crucial Mistakes
+As I was about to leave the system for overnight training, I realized that tokenize_example_refined function in training script was not embedding the numerical features at all. So the numeric fusion adapter was not receiving any numerical inputs during training. I am not sure when this mistake was introduced. From git blame it seems like since I added the numeric fusion adapter it never worked as intended. So all the results with numeric fusion adapter might be actually without numerical inputs. But I seem to remember like before yesterday's overnight training I fixed the training script to actually embed the numerical features. 
+
+Current I am not sure about the timeline. But **it is safer to assume all results with numeric fusion adapter were just placebo so far.**
+
+### Fixing the Training and Validation Scripts
+I fixed the training script to actually embed the numerical features in to the token embeddings. I also fixed the validation script to load the adapter weights and use numerical features during validation.
+
+Using float16 precision for numerical features caused some challenges. Also Transformers library had a "hidden" API again and I had to go search the source code to find out how to send numerical features to a collator successfully.
+
+Collator should help with more efficient batching of data during training. Plus I added further normalization to the NumericFusionAdapter to keep the numerical features within similar ranges as token embeddings. This should prevent and mismatches between numerical and token embeddings.
+
+This will be v0.2.2 since it is a significant fix. 
