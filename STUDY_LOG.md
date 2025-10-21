@@ -805,3 +805,5 @@ With numeric fusion adapter, at least on the validation, numeric input does not 
 Maybe numerics fusion adapter needs more training to show its true potential. I will keep training tonight since I don't have any time left to change the code today.
 
 One idea for tomorrow could be to try to create a custom token and tie fusion adapter to that. So we are not messing with the first token embedding, but rather creating our own token that is dedicated to these numerical features. I think this type of an implementation would be cleaner and let us spot any issues more easily. Also it could make the model more flexible, since we can choose to include or exclude the custom token during training and validation.
+
+Final version of this iteration was tagged as v0.2.3.
