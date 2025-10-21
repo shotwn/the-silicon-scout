@@ -302,6 +302,27 @@ class NumericTrainer(Trainer):
             torch.save(adapter_module.state_dict(), adapter_path)
             print(f"Custom numeric adapter saved to {adapter_path}")
 
+    def _load_from_checkpoint(self, resume_path):
+        # 1. Load standard LoRA weights and Trainer state
+        # Call the base class method to handle everything else (LoRA, optimizer, etc.)
+        super()._load_from_checkpoint(resume_path)
+
+        # 2. Manually load the state dict of the custom adapter
+        adapter_path = os.path.join(resume_path, "numeric_fusion_adapter.bin")
+
+        if os.path.exists(adapter_path):
+            print(f"Loading custom numeric adapter from {adapter_path}")
+            # Ensure the state_dict is loaded to the correct device
+            # map_location='cuda' will load it to the GPU if available
+            adapter_state_dict = torch.load(adapter_path, map_location=self.args.device)
+            
+            # The model attribute here is the PeftModel which holds the base model
+            # with our custom adapter attached.
+            self.model.numeric_fusion_adapter.load_state_dict(adapter_state_dict)
+            print("Successfully loaded custom numeric adapter weights.")
+        else:
+            print(f"Custom numeric adapter weights not found at {adapter_path}. Starting from scratch/random initialization.")
+
 trainer = NumericTrainer(
     model=model,
     args=training_args,

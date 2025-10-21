@@ -181,8 +181,8 @@ for example in tqdm(val_examples):
         start_decode_index = 0 # ^ This one was wrong, since we are using input_embeds we just get the answer part. No prompt to offset. 
                                # Also first token is not there in the text output.
 
-        print("Numeric embed mean/std:", numeric_embeds.mean().item(), numeric_embeds.std().item())
-        print("Text embed mean/std:", text_embeds.mean().item(), text_embeds.std().item())
+        # print("Numeric embed mean/std:", numeric_embeds.mean().item(), numeric_embeds.std().item())
+        # print("Text embed mean/std:", text_embeds.mean().item(), text_embeds.std().item())
     else:
         gen_kwargs = dict(input_ids=input_ids, attention_mask=attention_mask)
         start_decode_index = input_ids.shape[1]
@@ -190,12 +190,14 @@ for example in tqdm(val_examples):
     with torch.no_grad():
         output_ids = model.generate(
             **gen_kwargs,
-            top_p=0.9,                     # nucleus sampling ?
+            #top_p=0.9,                     # nucleus sampling ?
             max_new_tokens=1,              # allow at least 2 new tokens
             temperature=0.01,               # almost deterministic
-            do_sample=True,               # disable greedy decoding
+            #do_sample=True,               # disable greedy decoding
+            do_sample=False,               # enable greedy decoding -> reduce randomness
             eos_token_id=tokenizer.eos_token_id,  # 🚫 prevent early stopping
             suppress_tokens=[tokenizer.eos_token_id],  # 🚫 block EOS generation
+            pad_token_id=tokenizer.eos_token_id # suppress warning that appears when this is set automatically
         )
 
     if args.show_generated:
