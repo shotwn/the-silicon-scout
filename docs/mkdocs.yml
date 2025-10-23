@@ -25,3 +25,5 @@ extra_css:
 repo_url: "https://github.com/shotwn/bsc-project"
 
 use_directory_urls: false
+
+site_url: "https://shotwn.github.io/bsc-project"
