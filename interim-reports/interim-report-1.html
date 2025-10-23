@@ -422,12 +422,14 @@
   <div class="typography w-full flex-1 *:data-[slot=alert]:first:mt-0">
     <p>2025-10-23</p>
 <h2 id="what-is-the-goal-of-the-study">What is the goal of the study?</h2>
-<p>The goal is to fine-tune one or more large language models to help with physics discovery. They should be able to ingest a specialized physics knowledge and create statistically significant results for the users. Using the LLM for this task should allow the model to:
-- Accept input data in natural language form in various formats
-- Discuss it with itself or other models
-- Do multi-step reasoning
-- Prepare it to be processed by external tools
-- Give back results in natural language form</p>
+<p>The goal is to fine-tune one or more large language models to help with physics discovery. They should be able to ingest a specialized physics knowledge and create statistically significant results for the users. Using the LLM for this task should allow the model to:</p>
+<ul>
+<li>Accept input data in natural language form in various formats</li>
+<li>Discuss it with itself or other models</li>
+<li>Do multi-step reasoning</li>
+<li>Prepare it to be processed by external tools</li>
+<li>Give back results in natural language form</li>
+</ul>
 <h2 id="proof-of-concept">Proof of concept</h2>
 <p>For proof of concept we selected Large Hadron Collider Olympics 2020 (LHCO) challenges. These challenges were designed with machine learning in mind and has established simulated data. Using simulated LHCO data we can create the framework to train an LLM, then we can create our own unique simulated data and make sure framework is working as intended with a completely unique dataset. </p>
 <h2 id="what-did-the-study-accomplished-so-far">What Did The Study Accomplished So Far?</h2>
@@ -636,8 +638,10 @@ M_jj: 566.61
 </tr>
 </tbody>
 </table></div>
-<p>Please see <a href="../study-diary.html">study diary</a> for more detailed results.</p>
-<p><strong><em>Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts. Perhaps I need to train a custom token for numeric fusion adapter instead of using the first token embedding. Or perhaps numeric fusion adapter needs more training to stabilize. Maybe I need to increase the capacity of the adapter network. More experiments are needed to find out.</em></strong></p>
+<p>Please see relevant days in the <a href="../study-diary.html">study diary</a> for more detailed results.</p>
+<p><strong><em>Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts.</em></strong> </p>
+<p><strong><em>It also had no positive effect on black-box data performance. There are way too many false signals still.</em></strong></p>
+<p><strong><em>Perhaps I need to train a custom token for numeric fusion adapter instead of using the first token embedding. Or perhaps numeric fusion adapter needs more training to stabilize. Maybe I need to increase the capacity of the NFA's network...</em></strong></p>
 <h2 id="what-would-be-the-ideal-outcome">What Would Be The Ideal Outcome?</h2>
 <p>The ideal outcome of this study would be to have a fine-tuned LLM that can classify events with high accuracy, can use tools and have conscise explanations for its decisions. </p>
 <p>An example interaction could be:</p>
@@ -660,8 +664,8 @@ Model C: After considering both Model A and Model B's arguments, I conclude that
 </code></pre>
 
 <h2 id="next-steps">Next Steps</h2>
-<p>I think it is time to consider the viability of the project. If I can not improve the model's performance, I might need to consider alternative approaches. Especially with black-box data performance was quite low. False positive rate was very high which is not acceptable for physics discovery tasks.</p>
-<p>I will continue to train the latest setup and perhaps try to change how the numeric fusion adapter is implemented. While doing that I probably need to have a meeting with my advisor to discuss the future direction of the project.</p>
+<p>I think it is time to consider the viability of this approach. If I can not improve the model's performance, I might need to consider alternative approaches. Especially with black-box data signal performance this low.</p>
+<p>I will continue to train the latest setup and perhaps try to change how the numeric fusion adapter is implemented. While doing that I probably need to have a meeting with my advisor to discuss the future direction of the study.</p>
   </div>
 </article>
                                 <div class="mx-auto flex flex-wrap h-16 w-full max-w-2xl items-center gap-2 px-4 md:px-0">

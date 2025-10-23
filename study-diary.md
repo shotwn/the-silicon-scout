@@ -1,4 +1,7 @@
 # Study Diary
+This is the study diary for the study. I try not to edit previous days after they are written, so it will be full of mistakes, dead ends, wrong conclusions, wasted days and so on. 
+
+It is mostly for my own reference, so anything but the latest entries should be taken with a few kilos of salt.
 
 ## Initial Research
 I learnt about LHC Olympics, LoRA, HuggingFace Transformers, and other related topics. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
