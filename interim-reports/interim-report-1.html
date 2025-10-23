@@ -533,6 +533,7 @@ M_jj: 566.61
 <p>Further research led me to try to implement a numeric fusion adapter. Basically creating a small projection network over the first token embedding to infuse numerical information directly. This took multiple days to implement and debug since I fell in to almost all the pitfalls of working with APIs behind HuggingFace transformers. </p>
 <p>During these days I also started to use BlackBox 1 data from LHCO as part of my manual validation/statistics runs. After a few nights of useless training sessions, I finally was able to implement a working numeric fusion adapter.</p>
 <h3 id="latest-results">Latest Results</h3>
+<figure>
 <div class="table-wrapper"><table>
 <thead>
 <tr>
@@ -638,7 +639,10 @@ M_jj: 566.61
 </tr>
 </tbody>
 </table></div>
+<figcaption>
 <p>Please see relevant days in the <a href="../study-diary.html">study diary</a> for more detailed results.</p>
+</figcaption>
+</figure>
 <p><strong><em>Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts.</em></strong> </p>
 <p><strong><em>It also had no positive effect on black-box data performance. There are way too many false signals still.</em></strong></p>
 <p><strong><em>Perhaps I need to train a custom token for numeric fusion adapter instead of using the first token embedding. Or perhaps numeric fusion adapter needs more training to stabilize. Maybe I need to increase the capacity of the NFA's network...</em></strong></p>

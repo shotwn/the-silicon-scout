@@ -119,7 +119,9 @@ Date       | Dataset            | Checkpoint | Numeric Input | Accuracy | Backgr
 2025-10-20 | Black-box 1 @8000  | 2200       | Disabled      | 0.8965   | 1.00                 | 0.01             | 0.02            | 0.95
 2025-10-22 | Black-box 1 @8000  | 2400       | Enabled       | 0.806125 | 1.00                 | 0.01             | 0.01            | 0.89
 
+/// caption 
 Please see relevant days in the [study diary](../study-diary.md) for more detailed results.
+///
 
 
 ***Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts.*** 

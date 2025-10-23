@@ -4,13 +4,13 @@ This is the diary for the study. I try not to edit previous days after they are 
 It is mostly for my own reference, so anything but the latest entries should be taken with a few kilos of salt.
 
 ## Initial Research
-I learnt about LHC Olympics, LLMs, Tokenization, LoRA, HuggingFace Transformers. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
+I learnt about LHC Olympics[^1], LLMs, Tokenization, LoRA, HuggingFace Transformers[^4]. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
 
 ## 2025-10-14
 I am starting the study diary here. First day of the log is actually the 3rd attempt to have a go at this. This time rather than focusing on the training first, I am focusing on understanding the data.
 
 ### Understanding the Dataset
-I was able to successfully unpack the R&D dataset. It was obvious that the data needed some sort of pre-processing before it can be used in training.
+I was able to successfully unpack the R&D dataset[^2]. It was obvious that the data needed some sort of pre-processing before it can be used in training.
 
 Data consisted of a variable number of particles per event (up to 700). Each particle had 3 features pt, eta, phi. By observing the common practice again, I set required mass parameter to 0. So assumed massless particles.
 
@@ -38,7 +38,7 @@ Weighted loss function was another option, but I couldn't find a reliable implem
 See ./training_data_preparation.py
 
 ### Training the Model
-I use `mistralai/Mistral-7B-Instruct-v0.3` model as my initial base model. Mainly because it is a well known open weight model and it is relatively small (7B parameters).
+I use `mistralai/Mistral-7B-Instruct-v0.3`[^3] model as my initial base model. Mainly because it is a well known open weight model and it is relatively small (7B parameters).
 
 It became apparent early on that with my system only reliable way to inject LHC data to the model was using LoRA fine tuning. This allowed me to train the model with limited resources.
 
@@ -1050,3 +1050,8 @@ So far, numeric fusion adapter does not seem to be helping the model to generali
 - Continue training the model with numeric fusion adapter to see if performance improves with more training.
 - Perhaps switch training to imbalanced dataset and see if that helps the model to generalize better on black-box dataset.
 - Investigate alternative methods to incorporate numerical features in to the model.
+
+[^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
+[^2]: [R&D Dataset](https://zenodo.org/records/4536377)
+[^3]: [Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3)
+[^4]: [Hugging Face Transformers](https://huggingface.co/docs/transformers/en/index)
