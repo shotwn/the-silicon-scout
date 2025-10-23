@@ -6,4 +6,5 @@ Final thesis will be in Word format, but this site will contain supplementary ma
 Fikret Anıl Haksever - 2025 İstanbul
 
 ## Contents
-- [Study Diary](study_diary.md)
+- [Study Diary](study-diary)
+- [Interim Reports](/interim-reports/interim-report-1)
