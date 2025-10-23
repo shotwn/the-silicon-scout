@@ -807,3 +807,243 @@ Maybe numerics fusion adapter needs more training to show its true potential. I 
 One idea for tomorrow could be to try to create a custom token and tie fusion adapter to that. So we are not messing with the first token embedding, but rather creating our own token that is dedicated to these numerical features. I think this type of an implementation would be cleaner and let us spot any issues more easily. Also it could make the model more flexible, since we can choose to include or exclude the custom token during training and validation.
 
 Final version of this iteration was tagged as v0.2.3.
+
+#### A last minute change
+Just before starting the training, I decided to modify the numeric adapter to use 2 projection layers with SiLU activation in between instead of simply projecting one linear layer. For this I removed the previous scale and tanh normalization since SiLU should be enough.
+
+## 2025-10-21
+### After Overnight Training with Modified Numeric Fusion Adapter
+#### Checkpoint-1500
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 518 out of 524
+Number of correct signal predictions: 335 out of 476
+Validation Accuracy: 0.853
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.79      0.99      0.88       524
+      signal       0.98      0.70      0.82       476
+
+    accuracy                           0.85      1000
+   macro avg       0.88      0.85      0.85      1000
+weighted avg       0.88      0.85      0.85      1000
+```
+##### 1:1 Dataset at 1000 samples & numeric input DISABLED
+```
+Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 333 out of 476
+Validation Accuracy: 0.85
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.78      0.99      0.87       524
+      signal       0.98      0.70      0.82       476
+
+    accuracy                           0.85      1000
+   macro avg       0.88      0.84      0.84      1000
+weighted avg       0.88      0.85      0.85      1000
+```
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7127 out of 7250
+Number of correct signal predictions: 527 out of 750
+Validation Accuracy: 0.95675
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.98      0.98      7250
+      signal       0.81      0.70      0.75       750
+
+    accuracy                           0.96      8000
+   macro avg       0.89      0.84      0.86      8000
+weighted avg       0.95      0.96      0.96      8000
+```
+##### 1:10 Dataset at 8000 samples & numeric input DISABLED
+```
+Number of correct background predictions: 7127 out of 7250
+Number of correct signal predictions: 530 out of 750
+Validation Accuracy: 0.957125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.98      0.98      7250
+      signal       0.81      0.71      0.76       750
+
+    accuracy                           0.96      8000
+   macro avg       0.89      0.84      0.87      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+Negligible differences again.
+
+### Found a bug ! 
+I've noticed I am not feeding numerical features properly to the loss function during training. So model is not learning from numerical features at all.
+
+I have fixed the training script to properly feed numerical features to the loss function. Now it is time to restart the training from scratch.
+
+### After bugfix
+#### Checkpoint-400
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 487 out of 524
+Number of correct signal predictions: 356 out of 476
+Validation Accuracy: 0.843
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.80      0.93      0.86       524
+      signal       0.91      0.75      0.82       476
+
+    accuracy                           0.84      1000
+   macro avg       0.85      0.84      0.84      1000
+weighted avg       0.85      0.84      0.84      1000
+```
+##### 1:1 Dataset at 1000 samples & numeric input DISABLED
+```
+Number of correct background predictions: 71 out of 524
+Number of correct signal predictions: 475 out of 476
+Validation Accuracy: 0.546
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.14      0.24       524
+      signal       0.51      1.00      0.68       476
+
+    accuracy                           0.55      1000
+   macro avg       0.75      0.57      0.46      1000
+weighted avg       0.76      0.55      0.45      1000
+```
+
+Finally ! We are seeing a solid difference with numeric fusion adapter enabled. Even on an early checkpoint like 400. 
+
+Note that since now we correctly train with the fusion adapter, we might be making word-only training worse by disabling numeric input. We will need to compare 2 setups at later checkpoints to see the real difference.
+
+## 2025-10-22
+#### Checkpoint 2400
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 466 out of 524
+Number of correct signal predictions: 431 out of 476
+Validation Accuracy: 0.897
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.91      0.89      0.90       524
+      signal       0.88      0.91      0.89       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+```
+
+##### 1:1 Dataset at 1000 samples & numeric input DISABLED
+```
+Number of correct background predictions: 46 out of 524
+Number of correct signal predictions: 475 out of 476
+Validation Accuracy: 0.521
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.09      0.16       524
+      signal       0.50      1.00      0.66       476
+
+    accuracy                           0.52      1000
+   macro avg       0.74      0.54      0.41      1000
+weighted avg       0.75      0.52      0.40      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6395 out of 7250
+Number of correct signal predictions: 680 out of 750
+Validation Accuracy: 0.884375
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.88      0.93      7250
+      signal       0.44      0.91      0.60       750
+
+    accuracy                           0.88      8000
+   macro avg       0.72      0.89      0.76      8000
+weighted avg       0.94      0.88      0.90      8000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input DISABLED
+```
+Number of correct background predictions: 741 out of 7250
+Number of correct signal predictions: 749 out of 750
+Validation Accuracy: 0.18625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.10      0.19      7250
+      signal       0.10      1.00      0.19       750
+
+    accuracy                           0.19      8000
+   macro avg       0.55      0.55      0.19      8000
+weighted avg       0.91      0.19      0.19      8000
+```
+
+Huge difference again. Model is completely failing without numeric input. But is it more successful than previous attempts without numeric fusion adapter ?
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 6440 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.806125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.81      0.89      7989
+      signal       0.01      0.82      0.01        11
+
+    accuracy                           0.81      8000
+   macro avg       0.50      0.81      0.45      8000
+weighted avg       1.00      0.81      0.89      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input DISABLED
+```
+Number of correct background predictions: 847 out of 7989
+Number of correct signal predictions: 11 out of 11
+Validation Accuracy: 0.10725
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.11      0.19      7989
+      signal       0.00      1.00      0.00        11
+
+    accuracy                           0.11      8000
+   macro avg       0.50      0.55      0.10      8000
+weighted avg       1.00      0.11      0.19      8000
+```
+
+### Comparisons
+Up to bugfix (2025-10-21) we can assume models were not trained with numeric features at all. So we can compare the results before and after bugfix to see the impact of numeric fusion adapter.
+
+We will use numeric adapter disabled results from 2025-10-21 as the baseline for comparison.
+Precision is calculated as:
+
+Date       | Dataset            | Checkpoint | Numeric Input | Accuracy | Background Precision | Signal Precision | F1 Score Signal | F1 Score Background
+-----------|--------------------|------------|---------------|----------|----------------------|------------------|-----------------|-------------------
+2025-10-20 | 1:1 @1000          | 2200       | Disabled      | 0.907    | 0.89                 | 0.93             | 0.90            | 0.91
+2025-10-21 | 1:1 @1000          | 1500       | Disabled      | 0.85     | 0.78                 | 0.98             | 0.82            | 0.87
+2025-10-22 | 1:1 @1000          | 2400       | Enabled       | 0.897    | 0.91                 | 0.88             | 0.89            | 0.90
+2025-10-20 | 1:10 @8000         | 2200       | Disabled      | 0.930875 | 0.99                 | 0.59             | 0.87            | 0.96
+2025-10-21 | 1:10 @8000         | 1500       | Disabled      | 0.957125 | 0.97                 | 0.81             | 0.76            | 0.98
+2025-10-22 | 1:10 @8000         | 2400       | Enabled       | 0.884375 | 0.99                 | 0.44             | 0.60            | 0.93
+2025-10-20 | Black-box 1 @8000  | 2200       | Disabled      | 0.8965   | 1.00                 | 0.01             | 0.02            | 0.95
+2025-10-22 | Black-box 1 @8000  | 2400       | Enabled       | 0.806125 | 1.00                 | 0.01             | 0.01            | 0.89
+
+### Observations
+- On 1:1 dataset, numeric fusion adapter enabled model is performing similarly to the baseline model without numeric input. Slightly worse accuracy but better balance between background and signal precision.
+- On 1:10 dataset, numeric fusion adapter enabled model is performing worse than the baseline model without numeric input. Significant drop in accuracy and signal precision.
+- On Black-box dataset, numeric fusion adapter enabled model is performing worse than the baseline model without numeric input. Significant drop in accuracy.
+
+So far, numeric fusion adapter does not seem to be helping the model to generalize better. In fact it seems to be hurting the performance on imbalanced and black-box datasets.
+
+### Next Steps
+- Continue training the model with numeric fusion adapter to see if performance improves with more training.
+- Perhaps switch training to imbalanced dataset and see if that helps the model to generalize better on black-box dataset.
+- Investigate alternative methods to incorporate numerical features in to the model.

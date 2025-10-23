@@ -1,0 +1,27 @@
+site_name: Graduation Thesis Documentation
+theme:
+  name: shadcn
+  show_title: true # show the title in the top bar
+  show_stargazers: false # show the stargazers in the top bar
+  pygments_style: # default styles 
+        light: shadcn-light
+        dark: github-dark
+  icon: heroicons:rocket-launch # use the shadcn svg if not defined
+  topbar_sections: false # NEW!
+  katex_options: # optional
+    macros: # example of macros
+      "\\RR": "\\mathbb{R}" 
+      "\\dx": "\\mathrm{d}x"
+  show_datetime: false 
+
+markdown_extensions:
+  - codehilite
+  - pymdownx.arithmatex:
+      generic: true # required to work with shadcn theme
+
+extra_css:
+  - css/custom.css
+
+repo_url: "https://github.com/shotwn/bsc-project"
+
+use_directory_urls: false

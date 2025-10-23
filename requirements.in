@@ -16,3 +16,8 @@ bitsandbytes
 protobuf
 sentencepiece
 scikit-learn
+
+# For documentation generation
+mkdocs
+mkdocs-shadcn
+pymdown-extensions
