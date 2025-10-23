@@ -3,6 +3,7 @@
 
 ## What is the goal of the study?
 The goal is to fine-tune one or more large language models to help with physics discovery. They should be able to ingest a specialized physics knowledge and create statistically significant results for the users. Using the LLM for this task should allow the model to:
+
 - Accept input data in natural language form in various formats
 - Discuss it with itself or other models
 - Do multi-step reasoning
@@ -118,10 +119,14 @@ Date       | Dataset            | Checkpoint | Numeric Input | Accuracy | Backgr
 2025-10-20 | Black-box 1 @8000  | 2200       | Disabled      | 0.8965   | 1.00                 | 0.01             | 0.02            | 0.95
 2025-10-22 | Black-box 1 @8000  | 2400       | Enabled       | 0.806125 | 1.00                 | 0.01             | 0.01            | 0.89
 
-Please see [study diary](../study-diary.md) for more detailed results.
+Please see relevant days in the [study diary](../study-diary.md) for more detailed results.
 
 
-***Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts. Perhaps I need to train a custom token for numeric fusion adapter instead of using the first token embedding. Or perhaps numeric fusion adapter needs more training to stabilize. Maybe I need to increase the capacity of the adapter network. More experiments are needed to find out.***
+***Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts.*** 
+
+***It also had no positive effect on black-box data performance. There are way too many false signals still.***
+
+***Perhaps I need to train a custom token for numeric fusion adapter instead of using the first token embedding. Or perhaps numeric fusion adapter needs more training to stabilize. Maybe I need to increase the capacity of the NFA's network...***
 
 
 ## What Would Be The Ideal Outcome?
@@ -149,6 +154,6 @@ Model C: After considering both Model A and Model B's arguments, I conclude that
 ```
 
 ## Next Steps
-I think it is time to consider the viability of the project. If I can not improve the model's performance, I might need to consider alternative approaches. Especially with black-box data performance was quite low. False positive rate was very high which is not acceptable for physics discovery tasks.
+I think it is time to consider the viability of this approach. If I can not improve the model's performance, I might need to consider alternative approaches. Especially with black-box data signal performance this low.
 
-I will continue to train the latest setup and perhaps try to change how the numeric fusion adapter is implemented. While doing that I probably need to have a meeting with my advisor to discuss the future direction of the project.
+I will continue to train the latest setup and perhaps try to change how the numeric fusion adapter is implemented. While doing that I probably need to have a meeting with my advisor to discuss the future direction of the study.
