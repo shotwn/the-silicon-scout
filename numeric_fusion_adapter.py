@@ -9,25 +9,28 @@ class NumericFusionAdapter(nn.Module):
     def __init__(self, hidden_size, numeric_dim, dtype=default_precision_type, device=None):
         super().__init__()
         # Project numeric features to hidden size
-        self.fc = nn.Linear(numeric_dim, hidden_size, dtype=dtype, device=device)
-
-        # Added: Because text embeddings are typically small in magnitude
-        # Normalize to match token embedding scale
-        self.norm = nn.LayerNorm(hidden_size, dtype=dtype, device=device)
+        self.mlp = nn.Sequential(
+            # Two-layer MLP with SiLU activation and LayerNorm
+            # Size is hidden_size // 2 for the intermediate layer to prevent overfitting
+            # First layer
+            nn.Linear(numeric_dim, hidden_size // 2, dtype=dtype, device=device),
+            # Use SiLU activation
+            nn.SiLU(),
+            # Second layer
+            nn.Linear(hidden_size // 2, hidden_size, dtype=dtype, device=device),
+            # LayerNorm
+            nn.LayerNorm(hidden_size, dtype=dtype, device=device)
+        )
         # Scale to match token embedding scale
-        self.scale = nn.Parameter(torch.tensor(0.001))  # match token embedding scale
+        # self.scale = nn.Parameter(torch.tensor(0.001))  # match token embedding scale
 
     def forward(self, numeric_features):
         # Project numeric features to same dim as embeddings
         # Ensure dtype matches model
-        x = numeric_features.to(self.fc.weight.dtype)
-        # Linear projection
-        x = self.fc(x)
-        # Normalize
-        x = self.norm(x)
+        x = numeric_features.to(self.mlp[0].weight.dtype)
+        x = self.mlp(x)
         # Scale to match token embedding scale
-        # Tan h makes sure values are in [-1, 1], then rescale
-        x = torch.tanh(x) * self.scale  # compress + rescale
+        # x = x * self.scale # rescale
         return x.unsqueeze(1)  # shape: (B, 1, hidden_size)
     
 class NumericFeatureCollator:
@@ -53,5 +56,8 @@ class NumericFeatureCollator:
             numeric_tensor = numeric_tensor.half()
 
         numeric_tensor = numeric_tensor.to(batch["input_ids"].device)
+
+        #! This was missing previously
+        batch["numeric_features"] = numeric_tensor  # shape: (B, numeric_dim)
 
         return batch
