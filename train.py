@@ -11,7 +11,7 @@ import os
 
 # Check environment
 arg_parser = ArgumentParser()
-arg_parser.add_argument("--override_checkpoints", type=bool, default=False, required=False, help="Whether to continue training from existing checkpoints or override them.")
+arg_parser.add_argument("--override_checkpoints", action="store_true", default=False, required=False, help="Whether to continue training from existing checkpoints or override them.")
 arg_parser.add_argument("--output_dir", type=str, default="lora_lhco", required=False, help="Directory to save LoRA checkpoints and numeric fusion adapter weights.")
 args = arg_parser.parse_args()
 
@@ -50,6 +50,12 @@ model = prepare_model_for_kbit_training(model)
 numeric_dim = 16 # See data processing for chosen numeric features
 hidden_size = model.config.hidden_size
 model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim, dtype=torch.float16, device=model.device).to(model.device)
+
+# Make sure numeric fusion adapter parameters are trainable
+print("Numeric Fusion Adapter Parameters:")
+for name, param in model.numeric_fusion_adapter.named_parameters():
+    param.requires_grad_(True)
+    print(f"{name}: requires_grad={param.requires_grad}")
 
 
 lora_config = LoraConfig(
@@ -235,7 +241,7 @@ class NumericTrainer(Trainer):
         # ✅ Use public API to get embeddings
         embedding_layer = model.get_input_embeddings()
         inputs_embeds = embedding_layer(input_ids)
-
+        
         # Prepend numeric embeddings if available
         if numeric_features is not None:
             # device = next(model.parameters()).device
