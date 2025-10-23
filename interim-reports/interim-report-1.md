@@ -118,7 +118,7 @@ Date       | Dataset            | Checkpoint | Numeric Input | Accuracy | Backgr
 2025-10-20 | Black-box 1 @8000  | 2200       | Disabled      | 0.8965   | 1.00                 | 0.01             | 0.02            | 0.95
 2025-10-22 | Black-box 1 @8000  | 2400       | Enabled       | 0.806125 | 1.00                 | 0.01             | 0.01            | 0.89
 
-Please see study diary for more detailed results.
+Please see [study diary](/study-diary) for more detailed results.
 
 
 ***Results with numeric fusion adapter are dissapointing so far. Initial data shows that model is not performing better compared to previous attempts. Perhaps I need to train a custom token for numeric fusion adapter instead of using the first token embedding. Or perhaps numeric fusion adapter needs more training to stabilize. Maybe I need to increase the capacity of the adapter network. More experiments are needed to find out.***
