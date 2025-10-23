@@ -4,15 +4,15 @@ This is the diary for the study. I try not to edit previous days after they are 
 It is mostly for my own reference, so anything but the latest entries should be taken with a few kilos of salt.
 
 ## Initial Research
-I learnt about LHC Olympics, LoRA, HuggingFace Transformers, and other related topics. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
+I learnt about LHC Olympics, LLMs, Tokenization, LoRA, HuggingFace Transformers. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
 
 ## 2025-10-14
-I am starting the study diary here. First day of the log is actually the 3rd attempt to have a go at this. This time rather than focusing on training first, I am focusing on understanding the data first.
+I am starting the study diary here. First day of the log is actually the 3rd attempt to have a go at this. This time rather than focusing on the training first, I am focusing on understanding the data.
 
 ### Understanding the Dataset
 I was able to successfully unpack the R&D dataset. It was obvious that the data needed some sort of pre-processing before it can be used in training.
 
-Data consisted of a variable number of particles per event (up to 2100). Each particle had 3 features pt, eta, phi. By observing the common practice again I set required mass parameter to 0. So assumed massless particles.
+Data consisted of a variable number of particles per event (up to 700). Each particle had 3 features pt, eta, phi. By observing the common practice again, I set required mass parameter to 0. So assumed massless particles.
 
 Using examples from the LHC Olympics 2020, I understood that collimating data to jets was a common way to reduce the complexity of the data. In examples pyjet was used to cluster particles in to jets. But this library was deprecated and the author recommended using fastjet instead. Pyjet was not able to work with current numpy version so I had to use fastjet. 
 
