@@ -1,7 +1,7 @@
 # Home
 Welcome to the documentation site for my graduation thesis project.
 
-Final thesis will be in Word format, but this site will contain supplementary materials, notes, and logs.
+Final thesis will be in Word format, but this site will contain supplementary materials, notes, and logs. At least until the final phase of the thesis.
 
 Fikret Anıl Haksever - 2025 İstanbul
 
