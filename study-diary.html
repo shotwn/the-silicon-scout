@@ -1469,6 +1469,164 @@ Precision is calculated as:</p>
 <li>Perhaps switch training to imbalanced dataset and see if that helps the model to generalize better on black-box dataset.</li>
 <li>Investigate alternative methods to incorporate numerical features in to the model.</li>
 </ul>
+<h2 id="2025-10-23">2025-10-23</h2>
+<h3 id="after-2nd-day-of-training">After 2nd day of training</h3>
+<h4 id="checkpoint-5300">Checkpoint-5300</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_5">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<p>Number of correct background predictions: 493 out of 524
+Number of correct signal predictions: 405 out of 476
+Validation Accuracy: 0.898
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support</p>
+<p>background       0.87      0.94      0.91       524
+      signal       0.93      0.85      0.89       476</p>
+<pre class="codehilite"><code>accuracy                           0.90      1000
+</code></pre>
+
+<p>macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000</p>
+<h5 id="11-dataset-at-1000-samples-numeric-input-disabled_4">1:1 Dataset at 1000 samples &amp; numeric input DISABLED</h5>
+<p>Number of correct background predictions: 91 out of 524
+Number of correct signal predictions: 469 out of 476
+Validation Accuracy: 0.56
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support</p>
+<p>background       0.93      0.17      0.29       524
+      signal       0.52      0.99      0.68       476</p>
+<pre class="codehilite"><code>accuracy                           0.56      1000
+</code></pre>
+
+<p>macro avg       0.72      0.58      0.49      1000
+weighted avg       0.73      0.56      0.48      1000</p>
+<p>It is obvious that with numeric input disabled model is failing completely. So I will use numeric input enabled for rest of the tests.</p>
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_4">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 6797 out of 7250
+Number of correct signal predictions: 635 out of 750
+Validation Accuracy: 0.929
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.94      0.96      7250
+      signal       0.58      0.85      0.69       750
+
+    accuracy                           0.93      8000
+   macro avg       0.78      0.89      0.83      8000
+weighted avg       0.95      0.93      0.93      8000
+</code></pre>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_3">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7141 out of 7989
+Number of correct signal predictions: 8 out of 11
+Validation Accuracy: 0.893625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.89      0.94      7989
+      signal       0.01      0.73      0.02        11
+
+    accuracy                           0.89      8000
+   macro avg       0.50      0.81      0.48      8000
+weighted avg       1.00      0.89      0.94      8000
+</code></pre>
+
+<h2 id="2025-10-24">2025-10-24</h2>
+<h3 id="after-3rd-day-of-training">After 3rd day of training</h3>
+<h4 id="checkpoint-7700">Checkpoint-7700</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_6">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 465 out of 524
+Number of correct signal predictions: 432 out of 476
+Validation Accuracy: 0.897
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.91      0.89      0.90       524
+      signal       0.88      0.91      0.89       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+</code></pre>
+
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_5">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 6427 out of 7250
+Number of correct signal predictions: 693 out of 750
+Validation Accuracy: 0.89
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.89      0.94      7250
+      signal       0.46      0.92      0.61       750
+
+    accuracy                           0.89      8000
+   macro avg       0.72      0.91      0.77      8000
+weighted avg       0.94      0.89      0.91      8000
+</code></pre>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_4">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 6589 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.82475
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.82      0.90      7989
+      signal       0.01      0.82      0.01        11
+
+    accuracy                           0.82      8000
+   macro avg       0.50      0.82      0.46      8000
+weighted avg       1.00      0.82      0.90      8000
+</code></pre>
+
+<p>I will continue training for one more night, but I will change the training dataset to imbalanced 1:10 dataset. Hopefully this will help the model to generalize better on black-box dataset.</p>
+<h2 id="2025-10-25">2025-10-25</h2>
+<h3 id="switching-to-imbalanced-dataset-for-training">Switching to imbalanced dataset for training</h3>
+<p>I have modified the training script to use imbalanced 1:10 dataset for training. I will continue training from checkpoint-7700.</p>
+<h4 id="checkpoint-9800">Checkpoint-9800</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_7">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 514 out of 524
+Number of correct signal predictions: 361 out of 476
+Validation Accuracy: 0.875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.82      0.98      0.89       524
+      signal       0.97      0.76      0.85       476
+
+    accuracy                           0.88      1000
+   macro avg       0.90      0.87      0.87      1000
+weighted avg       0.89      0.88      0.87      1000
+</code></pre>
+
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_6">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7091 out of 7250
+Number of correct signal predictions: 573 out of 750
+Validation Accuracy: 0.958
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.98      0.98      7250
+      signal       0.78      0.76      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.88      0.87      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+</code></pre>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_5">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7692 out of 7989
+Number of correct signal predictions: 5 out of 11
+Validation Accuracy: 0.962125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.96      0.98      7989
+      signal       0.02      0.45      0.03        11
+
+    accuracy                           0.96      8000
+   macro avg       0.51      0.71      0.51      8000
+weighted avg       1.00      0.96      0.98      8000
+</code></pre>
+
 <div class="footnote">
 <hr />
 <ol>
@@ -1853,6 +2011,54 @@ Precision is calculated as:</p>
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Next Steps
+        </a>
+        
+        
+
+        
+        <a href="#2025-10-23"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-10-23
+        </a>
+        
+        
+        <a href="#after-2nd-day-of-training"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After 2nd day of training
+        </a>
+        
+        
+
+        
+        <a href="#2025-10-24"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-10-24
+        </a>
+        
+        
+        <a href="#after-3rd-day-of-training"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After 3rd day of training
+        </a>
+        
+        
+
+        
+        <a href="#2025-10-25"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-10-25
+        </a>
+        
+        
+        <a href="#switching-to-imbalanced-dataset-for-training"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Switching to imbalanced dataset for training
         </a>
         
         

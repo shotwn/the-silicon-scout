@@ -1051,6 +1051,177 @@ So far, numeric fusion adapter does not seem to be helping the model to generali
 - Perhaps switch training to imbalanced dataset and see if that helps the model to generalize better on black-box dataset.
 - Investigate alternative methods to incorporate numerical features in to the model.
 
+## 2025-10-23
+### After 2nd day of training
+#### Checkpoint-5300
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+Number of correct background predictions: 493 out of 524
+Number of correct signal predictions: 405 out of 476
+Validation Accuracy: 0.898
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.87      0.94      0.91       524
+      signal       0.93      0.85      0.89       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+
+##### 1:1 Dataset at 1000 samples & numeric input DISABLED
+Number of correct background predictions: 91 out of 524
+Number of correct signal predictions: 469 out of 476
+Validation Accuracy: 0.56
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.93      0.17      0.29       524
+      signal       0.52      0.99      0.68       476
+
+    accuracy                           0.56      1000
+   macro avg       0.72      0.58      0.49      1000
+weighted avg       0.73      0.56      0.48      1000
+
+
+It is obvious that with numeric input disabled model is failing completely. So I will use numeric input enabled for rest of the tests.
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6797 out of 7250
+Number of correct signal predictions: 635 out of 750
+Validation Accuracy: 0.929
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.94      0.96      7250
+      signal       0.58      0.85      0.69       750
+
+    accuracy                           0.93      8000
+   macro avg       0.78      0.89      0.83      8000
+weighted avg       0.95      0.93      0.93      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7141 out of 7989
+Number of correct signal predictions: 8 out of 11
+Validation Accuracy: 0.893625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.89      0.94      7989
+      signal       0.01      0.73      0.02        11
+
+    accuracy                           0.89      8000
+   macro avg       0.50      0.81      0.48      8000
+weighted avg       1.00      0.89      0.94      8000
+```
+## 2025-10-24
+### After 3rd day of training
+#### Checkpoint-7700
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 465 out of 524
+Number of correct signal predictions: 432 out of 476
+Validation Accuracy: 0.897
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.91      0.89      0.90       524
+      signal       0.88      0.91      0.89       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+```
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6427 out of 7250
+Number of correct signal predictions: 693 out of 750
+Validation Accuracy: 0.89
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.89      0.94      7250
+      signal       0.46      0.92      0.61       750
+
+    accuracy                           0.89      8000
+   macro avg       0.72      0.91      0.77      8000
+weighted avg       0.94      0.89      0.91      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 6589 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.82475
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.82      0.90      7989
+      signal       0.01      0.82      0.01        11
+
+    accuracy                           0.82      8000
+   macro avg       0.50      0.82      0.46      8000
+weighted avg       1.00      0.82      0.90      8000
+```
+
+I will continue training for one more night, but I will change the training dataset to imbalanced 1:10 dataset. Hopefully this will help the model to generalize better on black-box dataset.
+
+## 2025-10-25
+### Switching to imbalanced dataset for training
+I have modified the training script to use imbalanced 1:10 dataset for training. I will continue training from checkpoint-7700.
+
+#### Checkpoint-9800
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 514 out of 524
+Number of correct signal predictions: 361 out of 476
+Validation Accuracy: 0.875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.82      0.98      0.89       524
+      signal       0.97      0.76      0.85       476
+
+    accuracy                           0.88      1000
+   macro avg       0.90      0.87      0.87      1000
+weighted avg       0.89      0.88      0.87      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7091 out of 7250
+Number of correct signal predictions: 573 out of 750
+Validation Accuracy: 0.958
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.98      0.98      7250
+      signal       0.78      0.76      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.88      0.87      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7692 out of 7989
+Number of correct signal predictions: 5 out of 11
+Validation Accuracy: 0.962125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.96      0.98      7989
+      signal       0.02      0.45      0.03        11
+
+    accuracy                           0.96      8000
+   macro avg       0.51      0.71      0.51      8000
+weighted avg       1.00      0.96      0.98      8000
+```
+
+
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
 [^3]: [Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3)
