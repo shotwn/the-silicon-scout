@@ -1220,6 +1220,58 @@ All predictions classified as 'signal' or 'background'.
    macro avg       0.51      0.71      0.51      8000
 weighted avg       1.00      0.96      0.98      8000
 ```
+## 2025-10-26
+### After training on imbalanced dataset
+#### Checkpoint-11800
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 325 out of 476
+Validation Accuracy: 0.842
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.77      0.99      0.87       524
+      signal       0.98      0.68      0.80       476
+
+    accuracy                           0.84      1000
+   macro avg       0.88      0.83      0.84      1000
+weighted avg       0.87      0.84      0.84      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7162 out of 7250
+Number of correct signal predictions: 533 out of 750
+Validation Accuracy: 0.961875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.86      0.71      0.78       750
+
+    accuracy                           0.96      8000
+   macro avg       0.91      0.85      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7806 out of 7989
+Number of correct signal predictions: 6 out of 11
+Validation Accuracy: 0.9765
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.03      0.55      0.06        11
+
+    accuracy                           0.98      8000
+   macro avg       0.52      0.76      0.52      8000
+weighted avg       1.00      0.98      0.99      8000
+```
+
+
 
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)

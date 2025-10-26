@@ -1627,6 +1627,54 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       1.00      0.96      0.98      8000
 </code></pre>
 
+<h2 id="2025-10-26">2025-10-26</h2>
+<h3 id="after-training-on-imbalanced-dataset">After training on imbalanced dataset</h3>
+<h4 id="checkpoint-11800">Checkpoint-11800</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_8">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 325 out of 476
+Validation Accuracy: 0.842
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.77      0.99      0.87       524
+      signal       0.98      0.68      0.80       476
+
+    accuracy                           0.84      1000
+   macro avg       0.88      0.83      0.84      1000
+weighted avg       0.87      0.84      0.84      1000
+</code></pre>
+
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_7">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7162 out of 7250
+Number of correct signal predictions: 533 out of 750
+Validation Accuracy: 0.961875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.86      0.71      0.78       750
+
+    accuracy                           0.96      8000
+   macro avg       0.91      0.85      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+</code></pre>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_6">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7806 out of 7989
+Number of correct signal predictions: 6 out of 11
+Validation Accuracy: 0.9765
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.03      0.55      0.06        11
+
+    accuracy                           0.98      8000
+   macro avg       0.52      0.76      0.52      8000
+weighted avg       1.00      0.98      0.99      8000
+</code></pre>
+
 <div class="footnote">
 <hr />
 <ol>
@@ -2059,6 +2107,22 @@ weighted avg       1.00      0.96      0.98      8000
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Switching to imbalanced dataset for training
+        </a>
+        
+        
+
+        
+        <a href="#2025-10-26"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-10-26
+        </a>
+        
+        
+        <a href="#after-training-on-imbalanced-dataset"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After training on imbalanced dataset
         </a>
         
         
