@@ -1724,8 +1724,57 @@ weighted avg       1.00      0.98      0.99      8000
 
 <p>False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.</p>
 <h3 id="a-change">A Change</h3>
-<p>I have decided to change NFA from float16 to float32. Maybe higher precision will hopefully help the model to learn better.</p>
+<p>I've changed NFA from float16 to float32. Probably I was mistaken to not set this up earlier. But somehow I thought f32 would be incompatible with the quantized model. Hopefully higher precision will help the model to learn better.</p>
 <p>I will continue training overnight with 1:10 ratio and see the results tomorrow.</p>
+<h2 id="2025-10-28">2025-10-28</h2>
+<h3 id="after-training-with-float32-nfa-overnight">After training with float32 NFA overnight</h3>
+<p>Checkpoints increased only by 1400, float32 must be slowing down the training or the system slept during the night. I will diagnose it further if needed.</p>
+<h4 id="checkpoint-18700">Checkpoint-18700</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_10">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 520 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.835
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.99      0.66      0.79       476
+
+    accuracy                           0.83      1000
+   macro avg       0.88      0.83      0.83      1000
+weighted avg       0.87      0.83      0.83      1000
+</code></pre>
+
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_9">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7181 out of 7250
+Number of correct signal predictions: 512 out of 750
+Validation Accuracy: 0.961625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.88      0.68      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.84      0.87      8000
+weighted avg       0.96      0.96      0.96      8000
+</code></pre>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_8">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7833 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.9795
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.04        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+</code></pre>
+
 <div class="footnote">
 <hr />
 <ol>
@@ -2196,6 +2245,22 @@ weighted avg       1.00      0.98      0.99      8000
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             A Change
+        </a>
+        
+        
+
+        
+        <a href="#2025-10-28"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-10-28
+        </a>
+        
+        
+        <a href="#after-training-with-float32-nfa-overnight"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After training with float32 NFA overnight
         </a>
         
         

@@ -1324,9 +1324,60 @@ weighted avg       1.00      0.98      0.99      8000
 False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.
 
 ### A Change
-I have decided to change NFA from float16 to float32. Maybe higher precision will hopefully help the model to learn better.
+I've changed NFA from float16 to float32. Probably I was mistaken to not set this up earlier. But somehow I thought f32 would be incompatible with the quantized model. Hopefully higher precision will help the model to learn better.
 
 I will continue training overnight with 1:10 ratio and see the results tomorrow.
+
+## 2025-10-28
+### After training with float32 NFA overnight
+Checkpoints increased only by 1400, float32 must be slowing down the training or the system slept during the night. I will diagnose it further if needed.
+
+#### Checkpoint-18700
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 520 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.835
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.99      0.66      0.79       476
+
+    accuracy                           0.83      1000
+   macro avg       0.88      0.83      0.83      1000
+weighted avg       0.87      0.83      0.83      1000
+```
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7181 out of 7250
+Number of correct signal predictions: 512 out of 750
+Validation Accuracy: 0.961625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.88      0.68      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.84      0.87      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7833 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.9795
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.04        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+```
 
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
