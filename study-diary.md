@@ -1323,8 +1323,6 @@ weighted avg       1.00      0.98      0.99      8000
 
 False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.
 
-Maybe tomorrow I should try to train with even more imbalanced dataset like 1:20 or 1:50 to see if that helps the model to better separate signal from background.
-
 
 
 
