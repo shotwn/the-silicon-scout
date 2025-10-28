@@ -1271,6 +1271,60 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       1.00      0.98      0.99      8000
 ```
 
+## 2025-10-27
+#### Checkpoint-17300
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 519 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.834
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.98      0.66      0.79       476
+
+    accuracy                           0.83      1000
+   macro avg       0.87      0.83      0.83      1000
+weighted avg       0.87      0.83      0.83      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7168 out of 7250
+Number of correct signal predictions: 522 out of 750
+Validation Accuracy: 0.96125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.86      0.70      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.84      0.87      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7809 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.9765
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.03        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+```
+
+False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.
+
+Maybe tomorrow I should try to train with even more imbalanced dataset like 1:20 or 1:50 to see if that helps the model to better separate signal from background.
+
 
 
 
