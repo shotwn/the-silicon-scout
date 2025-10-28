@@ -49,14 +49,14 @@ model = prepare_model_for_kbit_training(model)
 # Add Numeric Fusion Adapter
 numeric_dim = 16 # See data processing for chosen numeric features
 hidden_size = model.config.hidden_size
-model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim, dtype=torch.float16, device=model.device).to(model.device)
+model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim, dtype=torch.float32, device=model.device).to(model.device) # !Switched to float32 for testing
 
 # Make sure numeric fusion adapter parameters are trainable
-print("Numeric Fusion Adapter Parameters:")
+print("\nNumeric Fusion Adapter Parameters:")
 for name, param in model.numeric_fusion_adapter.named_parameters():
     param.requires_grad_(True)
     print(f"{name}: requires_grad={param.requires_grad}")
-
+print("")
 
 lora_config = LoraConfig(
     r=32,
@@ -75,7 +75,7 @@ tokenizer.pad_token = tokenizer.eos_token
 
 # Load dataset
 ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
-
+#ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
 def format_example(example):
     jets = example["jets"]
     s = "[INST] Classify this event as 'signal' or 'background'.\n"
@@ -221,9 +221,32 @@ training_args = TrainingArguments(
 
 # Use 8-bit Adam optimizer
 from bitsandbytes.optim import AdamW8bit
-optimizer = AdamW8bit(model.parameters(), lr=training_args.learning_rate)
+lora_params = [
+    {"params": [p for n, p in model.named_parameters() if "lora_" in n and p.requires_grad],
+     "lr": training_args.learning_rate}
+]
 
-# 🧩 Custom Trainer to integrate numeric adapter
+# ! Consider weight decay if overfitting occurs
+numeric_params = [
+    {"params": model.numeric_fusion_adapter.parameters(),
+     "lr": training_args.learning_rate * 100}  # e.g. 3e-3 if base LR is 3e-5
+]
+
+optimizer = AdamW8bit(lora_params + numeric_params)
+
+# Debug: Print optimizer parameter groups
+print("\nOptimizer parameter groups:")
+for i, group in enumerate(optimizer.param_groups):
+    print(f"Group {i}: LR={group['lr']}, Parameter Tensors (Layers)={len(group['params'])}")
+
+# Debug: Print model parameter counts
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+total_params = sum(p.numel() for p in model.parameters())
+print(f"Trainable params: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.2f}%)\n")
+
+
+
+# Custom Trainer to integrate numeric adapter
 class NumericTrainer(Trainer):
     def compute_loss(
         self,
@@ -238,7 +261,7 @@ class NumericTrainer(Trainer):
         attention_mask = inputs.pop("attention_mask")
         labels = inputs.pop("labels")
 
-        # ✅ Use public API to get embeddings
+        # Use public API to get embeddings
         embedding_layer = model.get_input_embeddings()
         inputs_embeds = embedding_layer(input_ids)
         
@@ -252,14 +275,14 @@ class NumericTrainer(Trainer):
             numeric_embeds = model.numeric_fusion_adapter(numeric_features)
 
             
-            # 1. Extend and Fuse the Inputs/Masks
+            # Extend and Fuse the Inputs/Masks
             inputs_embeds = torch.cat([numeric_embeds, inputs_embeds], dim=1)
             attention_mask = torch.cat(
                 [torch.ones((attention_mask.shape[0], 1), device=attention_mask.device), attention_mask],
                 dim=1
             )
             
-            # 2. 💡 CRITICAL: Extend and Mask the Labels 💡
+            # Extend and Mask the Labels
             # Create a -100 tensor (mask) of shape (Batch_size, 1)
             numeric_labels_mask = torch.full(
                 (labels.shape[0], 1), # (B, 1)
@@ -270,11 +293,22 @@ class NumericTrainer(Trainer):
             # Prepend the mask to the original labels
             labels = torch.cat([numeric_labels_mask, labels], dim=1)
 
-        # 3. Sanity check
+        # Sanity check
+        # All sequence lengths should match now
         assert inputs_embeds.shape[1] == attention_mask.shape[1] == labels.shape[1], \
             f"Shape mismatch: embeds {inputs_embeds.shape}, mask {attention_mask.shape}, labels {labels.shape}"
 
-
+        # Debug: Print adapter weight stats every 100 steps
+        if self.state.global_step % 100 == 0:
+            adapter = model.numeric_fusion_adapter
+            for name, param in adapter.named_parameters():
+                if "weight" in name:
+                    print(f"[step {self.state.global_step}] {name} mean/std:",
+                        param.data.mean().item(), param.data.std().item())
+                    if param.grad is not None:
+                        print("grad mean/std:",
+                            param.grad.mean().item(), param.grad.std().item())
+                    break
 
         # Forward pass
         outputs = model(
@@ -289,10 +323,10 @@ class NumericTrainer(Trainer):
     
     # Override _save to manually save the custom adapter weights
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
-        # 1. Call the base class save method. This saves the LoRA weights and Trainer state.
+        # Call the base class save method. This saves the LoRA weights and Trainer state.
         super()._save(output_dir, state_dict)
         
-        # 2. Manually save the state dict of the custom adapter
+        # Manually save the state dict of the custom adapter
         # This check ensures we only save on the primary process
         if self.args.should_save:
             output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -309,11 +343,11 @@ class NumericTrainer(Trainer):
             print(f"Custom numeric adapter saved to {adapter_path}")
 
     def _load_from_checkpoint(self, resume_path):
-        # 1. Load standard LoRA weights and Trainer state
+        # Load standard LoRA weights and Trainer state
         # Call the base class method to handle everything else (LoRA, optimizer, etc.)
         super()._load_from_checkpoint(resume_path)
 
-        # 2. Manually load the state dict of the custom adapter
+        # Manually load the state dict of the custom adapter
         adapter_path = os.path.join(resume_path, "numeric_fusion_adapter.bin")
 
         if os.path.exists(adapter_path):

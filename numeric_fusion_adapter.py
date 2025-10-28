@@ -3,21 +3,38 @@ import torch
 import numpy as np
 from transformers.data.data_collator import default_data_collator
 
-default_precision_type = torch.float16
+default_precision_type = torch.float32 # ! Changed to float32 for testing
 
 class NumericFusionAdapter(nn.Module):
     def __init__(self, hidden_size, numeric_dim, dtype=default_precision_type, device=None):
         super().__init__()
         # Project numeric features to hidden size
         self.mlp = nn.Sequential(
-            # Two-layer MLP with SiLU activation and LayerNorm
+            # Three-layer MLP with SiLU activation and LayerNorm
+
             # Size is hidden_size // 2 for the intermediate layer to prevent overfitting
             # First layer
-            nn.Linear(numeric_dim, hidden_size // 2, dtype=dtype, device=device),
+            nn.Linear(numeric_dim, hidden_size // 2, dtype=dtype, device=device), # Compressed intermediate size
+
             # Use SiLU activation
-            nn.SiLU(),
+            # SiLU is smooth and non-linear, helps model complex relationships
+            # Also keeps negative values unlike ReLU
+            nn.SiLU(), # Activation 1 -> hidden_size // 2
+
+            # Dropout for regularization
+            # Dropout prevents overfitting, it mutes some activations randomly during training
+            # Low value of 0.05 to avoid losing too much information
+            nn.Dropout(0.05),
+
             # Second layer
-            nn.Linear(hidden_size // 2, hidden_size, dtype=dtype, device=device),
+            nn.Linear(hidden_size // 2, hidden_size, dtype=dtype, device=device), # Expand to hidden_size
+
+            # Another SiLU activation
+            nn.SiLU(), # Activation 2 -> hidden_size
+
+            ## Final linear layer to project to hidden_size
+            nn.Linear(hidden_size, hidden_size, dtype=dtype, device=device), # Project to hidden_size, refinement
+            
             # LayerNorm
             nn.LayerNorm(hidden_size, dtype=dtype, device=device)
         )
