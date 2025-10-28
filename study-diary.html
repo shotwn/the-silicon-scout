@@ -1723,6 +1723,9 @@ weighted avg       1.00      0.98      0.99      8000
 </code></pre>
 
 <p>False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.</p>
+<h3 id="a-change">A Change</h3>
+<p>I have decided to change NFA from float16 to float32. Maybe higher precision will hopefully help the model to learn better.</p>
+<p>I will continue training overnight with 1:10 ratio and see the results tomorrow.</p>
 <div class="footnote">
 <hr />
 <ol>
@@ -2187,6 +2190,12 @@ weighted avg       1.00      0.98      0.99      8000
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Checkpoint-17300
+        </a>
+        
+        <a href="#a-change"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            A Change
         </a>
         
         

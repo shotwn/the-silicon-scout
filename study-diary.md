@@ -1323,7 +1323,10 @@ weighted avg       1.00      0.98      0.99      8000
 
 False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.
 
+### A Change
+I have decided to change NFA from float16 to float32. Maybe higher precision will hopefully help the model to learn better.
 
+I will continue training overnight with 1:10 ratio and see the results tomorrow.
 
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
