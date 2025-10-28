@@ -1,18 +1,18 @@
 # Study Diary
-This is the study diary for the study. I try not to edit previous days after they are written, so it will be full of mistakes, dead ends, wrong conclusions, wasted days and so on. 
+This is the diary for the study. I try not to edit previous days after they are written, so it will be full of mistakes, dead ends, wrong conclusions, wasted days and so on.
 
 It is mostly for my own reference, so anything but the latest entries should be taken with a few kilos of salt.
 
 ## Initial Research
-I learnt about LHC Olympics, LoRA, HuggingFace Transformers, and other related topics. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
+I learnt about LHC Olympics[^1], LLMs, Tokenization, LoRA, HuggingFace Transformers[^4]. I also had a few crash-course sessions about collision events, jet clustering, and other related physics topics. I noticed that I know almost nothing about these topics. But I was able to find some common practices and examples to follow.
 
 ## 2025-10-14
-I am starting the study diary here. First day of the log is actually the 3rd attempt to have a go at this. This time rather than focusing on training first, I am focusing on understanding the data first.
+I am starting the study diary here. First day of the log is actually the 3rd attempt to have a go at this. This time rather than focusing on the training first, I am focusing on understanding the data.
 
 ### Understanding the Dataset
-I was able to successfully unpack the R&D dataset. It was obvious that the data needed some sort of pre-processing before it can be used in training.
+I was able to successfully unpack the R&D dataset[^2]. It was obvious that the data needed some sort of pre-processing before it can be used in training.
 
-Data consisted of a variable number of particles per event (up to 2100). Each particle had 3 features pt, eta, phi. By observing the common practice again I set required mass parameter to 0. So assumed massless particles.
+Data consisted of a variable number of particles per event (up to 700). Each particle had 3 features pt, eta, phi. By observing the common practice again, I set required mass parameter to 0. So assumed massless particles.
 
 Using examples from the LHC Olympics 2020, I understood that collimating data to jets was a common way to reduce the complexity of the data. In examples pyjet was used to cluster particles in to jets. But this library was deprecated and the author recommended using fastjet instead. Pyjet was not able to work with current numpy version so I had to use fastjet. 
 
@@ -38,7 +38,7 @@ Weighted loss function was another option, but I couldn't find a reliable implem
 See ./training_data_preparation.py
 
 ### Training the Model
-I use `mistralai/Mistral-7B-Instruct-v0.3` model as my initial base model. Mainly because it is a well known open weight model and it is relatively small (7B parameters).
+I use `mistralai/Mistral-7B-Instruct-v0.3`[^3] model as my initial base model. Mainly because it is a well known open weight model and it is relatively small (7B parameters).
 
 It became apparent early on that with my system only reliable way to inject LHC data to the model was using LoRA fine tuning. This allowed me to train the model with limited resources.
 
@@ -1050,3 +1050,348 @@ So far, numeric fusion adapter does not seem to be helping the model to generali
 - Continue training the model with numeric fusion adapter to see if performance improves with more training.
 - Perhaps switch training to imbalanced dataset and see if that helps the model to generalize better on black-box dataset.
 - Investigate alternative methods to incorporate numerical features in to the model.
+
+## 2025-10-23
+### After 2nd day of training
+#### Checkpoint-5300
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+Number of correct background predictions: 493 out of 524
+Number of correct signal predictions: 405 out of 476
+Validation Accuracy: 0.898
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.87      0.94      0.91       524
+      signal       0.93      0.85      0.89       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+
+##### 1:1 Dataset at 1000 samples & numeric input DISABLED
+Number of correct background predictions: 91 out of 524
+Number of correct signal predictions: 469 out of 476
+Validation Accuracy: 0.56
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.93      0.17      0.29       524
+      signal       0.52      0.99      0.68       476
+
+    accuracy                           0.56      1000
+   macro avg       0.72      0.58      0.49      1000
+weighted avg       0.73      0.56      0.48      1000
+
+
+It is obvious that with numeric input disabled model is failing completely. So I will use numeric input enabled for rest of the tests.
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6797 out of 7250
+Number of correct signal predictions: 635 out of 750
+Validation Accuracy: 0.929
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.94      0.96      7250
+      signal       0.58      0.85      0.69       750
+
+    accuracy                           0.93      8000
+   macro avg       0.78      0.89      0.83      8000
+weighted avg       0.95      0.93      0.93      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7141 out of 7989
+Number of correct signal predictions: 8 out of 11
+Validation Accuracy: 0.893625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.89      0.94      7989
+      signal       0.01      0.73      0.02        11
+
+    accuracy                           0.89      8000
+   macro avg       0.50      0.81      0.48      8000
+weighted avg       1.00      0.89      0.94      8000
+```
+## 2025-10-24
+### After 3rd day of training
+#### Checkpoint-7700
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 465 out of 524
+Number of correct signal predictions: 432 out of 476
+Validation Accuracy: 0.897
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.91      0.89      0.90       524
+      signal       0.88      0.91      0.89       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+```
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6427 out of 7250
+Number of correct signal predictions: 693 out of 750
+Validation Accuracy: 0.89
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.89      0.94      7250
+      signal       0.46      0.92      0.61       750
+
+    accuracy                           0.89      8000
+   macro avg       0.72      0.91      0.77      8000
+weighted avg       0.94      0.89      0.91      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 6589 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.82475
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.82      0.90      7989
+      signal       0.01      0.82      0.01        11
+
+    accuracy                           0.82      8000
+   macro avg       0.50      0.82      0.46      8000
+weighted avg       1.00      0.82      0.90      8000
+```
+
+I will continue training for one more night, but I will change the training dataset to imbalanced 1:10 dataset. Hopefully this will help the model to generalize better on black-box dataset.
+
+## 2025-10-25
+### Switching to imbalanced dataset for training
+I have modified the training script to use imbalanced 1:10 dataset for training. I will continue training from checkpoint-7700.
+
+#### Checkpoint-9800
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 514 out of 524
+Number of correct signal predictions: 361 out of 476
+Validation Accuracy: 0.875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.82      0.98      0.89       524
+      signal       0.97      0.76      0.85       476
+
+    accuracy                           0.88      1000
+   macro avg       0.90      0.87      0.87      1000
+weighted avg       0.89      0.88      0.87      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7091 out of 7250
+Number of correct signal predictions: 573 out of 750
+Validation Accuracy: 0.958
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.98      0.98      7250
+      signal       0.78      0.76      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.88      0.87      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7692 out of 7989
+Number of correct signal predictions: 5 out of 11
+Validation Accuracy: 0.962125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.96      0.98      7989
+      signal       0.02      0.45      0.03        11
+
+    accuracy                           0.96      8000
+   macro avg       0.51      0.71      0.51      8000
+weighted avg       1.00      0.96      0.98      8000
+```
+## 2025-10-26
+### After training on imbalanced dataset
+#### Checkpoint-11800
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 325 out of 476
+Validation Accuracy: 0.842
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.77      0.99      0.87       524
+      signal       0.98      0.68      0.80       476
+
+    accuracy                           0.84      1000
+   macro avg       0.88      0.83      0.84      1000
+weighted avg       0.87      0.84      0.84      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7162 out of 7250
+Number of correct signal predictions: 533 out of 750
+Validation Accuracy: 0.961875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.86      0.71      0.78       750
+
+    accuracy                           0.96      8000
+   macro avg       0.91      0.85      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7806 out of 7989
+Number of correct signal predictions: 6 out of 11
+Validation Accuracy: 0.9765
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.03      0.55      0.06        11
+
+    accuracy                           0.98      8000
+   macro avg       0.52      0.76      0.52      8000
+weighted avg       1.00      0.98      0.99      8000
+```
+
+## 2025-10-27
+#### Checkpoint-17300
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 519 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.834
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.98      0.66      0.79       476
+
+    accuracy                           0.83      1000
+   macro avg       0.87      0.83      0.83      1000
+weighted avg       0.87      0.83      0.83      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7168 out of 7250
+Number of correct signal predictions: 522 out of 750
+Validation Accuracy: 0.96125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.86      0.70      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.84      0.87      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7809 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.9765
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.03        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+```
+
+False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.
+
+### A Change
+I've changed NFA from float16 to float32. Probably I was mistaken to not set this up earlier. But somehow I thought f32 would be incompatible with the quantized model. Hopefully higher precision will help the model to learn better.
+
+I will continue training overnight with 1:10 ratio and see the results tomorrow.
+
+## 2025-10-28
+### After training with float32 NFA overnight
+Checkpoints increased only by 1400, float32 must be slowing down the training or the system slept during the night. I will diagnose it further if needed.
+
+#### Checkpoint-18700
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 520 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.835
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.99      0.66      0.79       476
+
+    accuracy                           0.83      1000
+   macro avg       0.88      0.83      0.83      1000
+weighted avg       0.87      0.83      0.83      1000
+```
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7181 out of 7250
+Number of correct signal predictions: 512 out of 750
+Validation Accuracy: 0.961625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.88      0.68      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.84      0.87      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7833 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.9795
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.04        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+```
+
+### Seperating Numeric Feature Optimization From LoRA
+I think reaching results of Checkpoint-18700 was an overall improvement compared to previous attempts. We were able to reduce the wrong signal predictions but it came at the cost of losing true signal predictions as well. So eventhough rough accuracy improved, model is still not very useful for our task. 
+
+I seperated the parameter groups for LoRA and Numeric Fusion Adapter optimizers. Now NFA has its own optimizer with a higher learning rate of 3e-3 while LoRA optimizer is kept at 3e-5. Additionally, I added another layer of SiLU + Linear projection to the NFA module to increase its capacity. With complex exponential relationships in the numerical features, I think NFA needs more capacity to model them properly. Hopefully this will help the NFA to converge better without disturbing the LoRA training.
+
+I also added a few debug prints to monitor the NFA weights during training.
+
+Sadly this means I have to restart the training from scratch.
+
+I will start training again but return to 1:1 dataset. I can compare the results better this way with previous attempts. Plus I think using unbalanced dataset early on might collapse the model to predicting mostly background.
+
+
+[^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
+[^2]: [R&D Dataset](https://zenodo.org/records/4536377)
+[^3]: [Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3)
+[^4]: [Hugging Face Transformers](https://huggingface.co/docs/transformers/en/index)

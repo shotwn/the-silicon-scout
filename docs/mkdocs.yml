@@ -18,6 +18,8 @@ markdown_extensions:
   - codehilite
   - pymdownx.arithmatex:
       generic: true # required to work with shadcn theme
+  - pymdownx.blocks.caption
+  - footnotes
 
 extra_css:
   - css/custom.css
