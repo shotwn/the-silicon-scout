@@ -74,7 +74,7 @@ class NumericFeatureCollator:
 
         numeric_tensor = numeric_tensor.to(batch["input_ids"].device)
 
-        #! This was missing previously
+        # Add numeric features back to batch
         batch["numeric_features"] = numeric_tensor  # shape: (B, numeric_dim)
 
         return batch

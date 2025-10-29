@@ -12,6 +12,7 @@ import os
 # Check environment
 arg_parser = ArgumentParser()
 arg_parser.add_argument("--override_checkpoints", action="store_true", default=False, required=False, help="Whether to continue training from existing checkpoints or override them.")
+arg_parser.add_argument("--reset_dataset_cache", action="store_true", default=False, required=False, help="Whether to reset the dataset cache.")
 arg_parser.add_argument("--output_dir", type=str, default="lora_lhco", required=False, help="Directory to save LoRA checkpoints and numeric fusion adapter weights.")
 args = arg_parser.parse_args()
 
@@ -49,12 +50,13 @@ model = prepare_model_for_kbit_training(model)
 # Add Numeric Fusion Adapter
 numeric_dim = 16 # See data processing for chosen numeric features
 hidden_size = model.config.hidden_size
-model.numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim, dtype=torch.float32, device=model.device).to(model.device) # !Switched to float32 for testing
+numeric_fusion_adapter = NumericFusionAdapter(hidden_size, numeric_dim, dtype=torch.float32, device=model.device).to(model.device) # !Switched to float32 for testing
+model.numeric_fusion_adapter = numeric_fusion_adapter
 
 # Make sure numeric fusion adapter parameters are trainable
 print("\nNumeric Fusion Adapter Parameters:")
 for name, param in model.numeric_fusion_adapter.named_parameters():
-    param.requires_grad_(True)
+    # param.requires_grad_(True)
     print(f"{name}: requires_grad={param.requires_grad}")
 print("")
 
@@ -67,12 +69,19 @@ lora_config = LoraConfig(
 )
 
 model = get_peft_model(model, lora_config)
+# ! TEST: re-attach numeric fusion adapter to the PeftModel
+# model.numeric_fusion_adapter = numeric_fusion_adapter
+
 # Heck if I know, it was needed to make max_grad_norm work
 model.enable_input_require_grads()
 
 # Important: Set tokenizer.pad_token to eos_token
 tokenizer.pad_token = tokenizer.eos_token
 
+
+"""
+Data Loading and Preprocessing
+"""
 # Load dataset
 ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
 #ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
@@ -97,7 +106,7 @@ def format_example(example):
         "M_jj": example["M_jj"]
     }
 
-ds = ds.map(format_example, load_from_cache_file=not args.override_checkpoints)
+ds = ds.map(format_example, load_from_cache_file=not args.reset_dataset_cache)
 
 def tokenize_example_refined(example, max_length=512):
     # 1. Construct the full sequence: Prompt + Answer
@@ -189,7 +198,7 @@ def tokenize_example_refined(example, max_length=512):
 tokenized_ds = ds.map(
     tokenize_example_refined, 
     batched=False, 
-    load_from_cache_file=not args.override_checkpoints, 
+    load_from_cache_file=not args.reset_dataset_cache, 
     remove_columns=ds["train"].column_names,
 )
 
@@ -202,6 +211,7 @@ tokenized_ds.set_format(
 )
 
 # Setup training
+# TODO: Carry me over to Trainer
 training_args = TrainingArguments(
     output_dir=args.output_dir,
     per_device_train_batch_size=1,
@@ -211,42 +221,70 @@ training_args = TrainingArguments(
     save_strategy="steps",
     save_steps=100,
     eval_steps=100,
-    logging_steps=30,
-    gradient_checkpointing=True, # Transformer was warning me to set this.
+    logging_steps=36,
+    logging_dir="./logs",
+    gradient_checkpointing=True, # Transformer was warning me to set this. ! Changed to False for testing
     gradient_checkpointing_kwargs={'use_reentrant': False},  # Transformer was warning me to set this. Appearently in future versions it will default to False.
     max_grad_norm=1.0, # Added gradient clipping, after custom weighted loss we were having huge grad_norms (>500) in initial checkpoints
     #! Took forever to find. Important to keep numeric_features, make sure to clean other unused columns
     remove_unused_columns=False, 
+    report_to="tensorboard"  # Enable TensorBoard logging
 )
 
+
+
+"""
+Optimizer Setup with bitsandbytes GlobalOptimManager
+"""
 # Use 8-bit Adam optimizer
-from bitsandbytes.optim import AdamW8bit
-lora_params = [
-    {"params": [p for n, p in model.named_parameters() if "lora_" in n and p.requires_grad],
-     "lr": training_args.learning_rate}
-]
+# https://huggingface.co/docs/bitsandbytes/main/en/optimizers
+# NOTE: We must import GlobalOptimManager to explicitly set 32-bit optimization for the adapter.
+from bitsandbytes.optim import AdamW8bit, GlobalOptimManager
 
-# ! Consider weight decay if overfitting occurs
-numeric_params = [
-    {"params": model.numeric_fusion_adapter.parameters(),
-     "lr": training_args.learning_rate * 100}  # e.g. 3e-3 if base LR is 3e-5
-]
+# --- NEW OPTIMIZER SETUP ---
+# Allowing 32-bit optimization for the numeric fusion adapter
 
-optimizer = AdamW8bit(lora_params + numeric_params)
+# Initialize GlobalOptimManager and register the adapter's parameters
+mng = GlobalOptimManager.get_instance()
+# Register the adapter's parameters before initializing the optimizer
+mng.register_parameters(model.numeric_fusion_adapter.parameters())
 
-# Debug: Print optimizer parameter groups
-print("\nOptimizer parameter groups:")
-for i, group in enumerate(optimizer.param_groups):
-    print(f"Group {i}: LR={group['lr']}, Parameter Tensors (Layers)={len(group['params'])}")
+# Get ALL trainable parameters (LoRA and Adapter)
+all_trainable_params = [p for p in model.parameters() if p.requires_grad]
 
-# Debug: Print model parameter counts
-trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Trainable params: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.2f}%)\n")
+# Initialize the SINGLE Optimizer (AdamW8bit) with all parameters
+# The LoRA parameters will use the base LR.
+base_lr = training_args.learning_rate
+optimizer = AdamW8bit(all_trainable_params, lr=base_lr) 
+
+# Override specific parameters for 32-bit optimization and higher LR
+numeric_lr = base_lr * 100 # 0.003
+numeric_config = {'optim_bits': 32, 'lr': numeric_lr, 'weight_decay': 0.0}
+
+print("\nApplying GlobalOptimManager overrides for Numeric Fusion Adapter:")
+# Override all parameters in the adapter module
+for name, param in model.numeric_fusion_adapter.named_parameters():
+    # ! Important:
+    # Force requires_grad to True, this was reverting to False for some reason
+    param.requires_grad_(True)
+
+    print(f"Checking parameter: {name}, requires_grad={param.requires_grad}")
+
+    if not param.requires_grad:
+        print(f"Warning: Eventhough forced, parameter {name} has requires_grad=False. Skipping override.")
+        continue
+
+    # Use the manager to override the config for this specific parameter
+    mng.override_config(param, key_value_dict=numeric_config)
+    print(f"- Overrode {name}: optim_bits=32, lr={numeric_lr}")
+
+# Re-print parameter groups for verification (the manager handles the split internally)
+print(f"\nTotal trainable params: {len(all_trainable_params)}")
 
 
-
-# Custom Trainer to integrate numeric adapter
+"""
+Custom Trainer to integrate numeric adapter
+"""
 class NumericTrainer(Trainer):
     def compute_loss(
         self,
@@ -298,8 +336,19 @@ class NumericTrainer(Trainer):
         assert inputs_embeds.shape[1] == attention_mask.shape[1] == labels.shape[1], \
             f"Shape mismatch: embeds {inputs_embeds.shape}, mask {attention_mask.shape}, labels {labels.shape}"
 
-        # Debug: Print adapter weight stats every 100 steps
-        if self.state.global_step % 100 == 0:
+        # Forward pass
+        outputs = model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            labels=labels,
+            **inputs  # any extra keys are forwarded safely
+        )
+
+        loss = outputs.loss
+
+        """
+        # Debug: Print adapter weight stats every 16 steps
+        if self.state.global_step % 16 == 0:
             adapter = model.numeric_fusion_adapter
             for name, param in adapter.named_parameters():
                 if "weight" in name:
@@ -310,15 +359,31 @@ class NumericTrainer(Trainer):
                             param.grad.mean().item(), param.grad.std().item())
                     break
 
-        # Forward pass
-        outputs = model(
-            inputs_embeds=inputs_embeds,
-            attention_mask=attention_mask,
-            labels=labels,
-            **inputs  # any extra keys are forwarded safely
-        )
+        # Debug: Print adapter gradient stats every 16 steps
+     
+        if self.state.global_step % 16 == 0:
+            for name, p in model.numeric_fusion_adapter.named_parameters():
+                if p.grad is None:
+                    print(f"[step {self.state.global_step}] {name} grad=None ❌")
+                else:
+                    print(f"[step {self.state.global_step}] {name} grad mean/std:",
+                        p.grad.mean().item(), p.grad.std().item())
+            print("---")
+        """
 
-        loss = outputs.loss
+        if self.state.global_step % 36 == 0 and self.state.global_step > 0:
+            # Compute total grad norm for numeric adapter
+            adapter = model.numeric_fusion_adapter
+            grads = [p.grad.norm(2) for p in adapter.parameters() if p.grad is not None]
+            if len(grads) > 0:
+                total_norm = torch.norm(torch.stack(grads), 2).item()
+                self.log({"adapter_grad_norm": total_norm})
+            else:
+                total_norm = 0.0
+                self.log({"adapter_grad_norm": total_norm})
+
+            self.log({"loss": loss.item()})
+
         return (loss, outputs) if return_outputs else loss
     
     # Override _save to manually save the custom adapter weights
@@ -363,13 +428,16 @@ class NumericTrainer(Trainer):
         else:
             print(f"Custom numeric adapter weights not found at {adapter_path}. Starting from scratch/random initialization.")
 
+"""
+Training with NumericTrainer
+"""
 trainer = NumericTrainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_ds["train"],
     eval_dataset=tokenized_ds["validation"],
     tokenizer=tokenizer,
-    optimizers=(optimizer, None),  # use custom 8-bit optimizer
+    optimizers=(optimizer, None),  # Optimizer and no scheduler
     data_collator=NumericFeatureCollator(),
     # compute_loss_func=compute_loss  # our custom loss function
 )
