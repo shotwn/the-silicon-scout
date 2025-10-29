@@ -1379,6 +1379,20 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       1.00      0.98      0.99      8000
 ```
 
+### Seperating Numeric Feature Optimization From LoRA
+I think reaching results of Checkpoint-18700 was an overall improvement compared to previous attempts. We were able to reduce the wrong signal predictions but it came at the cost of losing true signal predictions as well. So eventhough rough accuracy improved, model is still not very useful for our task. 
+
+I seperated the optimizer parameters (AdamW8Bit) for NFA and LoRA. Now NFA uses 32 bit option with a higher learning rate of 3e-3 while LoRA optimizer is kept at 3e-5. Additionally, I added another layer of SiLU + Linear projection to the NFA module to increase its capacity. With complex exponential relationships in the numerical features, I think NFA needs more capacity to model them properly. Hopefully this will help the NFA to converge better without disturbing the LoRA training.
+
+I also added a few debug prints to monitor the NFA weights during training. Which proved useful because AdamW8Bit was not updating the NFA weights at all but giving no errors or warnings. After some investigation I found out that I had to explicitly set the NFA parameters to require gradients and use 32-bit optimization. But without proper debugging I would stay clueless for a long time.
+
+Finally, I started experimenting with tensorboard to monitor the training process better. 
+
+#### Restarting Training
+Sadly these changes meant I have to restart the training from scratch.
+
+I started training again but returned to 1:1 dataset. I can compare the results better this way with previous attempts. Plus I think using unbalanced dataset early on might collapse the model to predicting mostly background.
+
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
