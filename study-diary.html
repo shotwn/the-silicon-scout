@@ -1783,6 +1783,142 @@ weighted avg       1.00      0.98      0.99      8000
 <h4 id="restarting-training">Restarting Training</h4>
 <p>Sadly these changes meant I have to restart the training from scratch.</p>
 <p>I started training again but returned to 1:1 dataset. I can compare the results better this way with previous attempts. Plus I think using unbalanced dataset early on might collapse the model to predicting mostly background.</p>
+<h2 id="2025-10-29">2025-10-29</h2>
+<h3 id="after-restarting-training-with-seperated-optimizers">After restarting training with seperated optimizers</h3>
+<h4 id="checkpoint-2200_1">Checkpoint-2200</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_11">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 498 out of 524
+Number of correct signal predictions: 397 out of 476
+Validation Accuracy: 0.895
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.86      0.95      0.90       524
+      signal       0.94      0.83      0.88       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.89      0.89      1000
+weighted avg       0.90      0.90      0.89      1000
+</code></pre>
+
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_10">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 6928 out of 7250
+Number of correct signal predictions: 628 out of 750
+Validation Accuracy: 0.9445
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.96      0.97      7250
+      signal       0.66      0.84      0.74       750
+
+    accuracy                           0.94      8000
+   macro avg       0.82      0.90      0.85      8000
+weighted avg       0.95      0.94      0.95      8000
+</code></pre>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_9">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<pre class="codehilite"><code>Number of correct background predictions: 7398 out of 7989
+Number of correct signal predictions: 7 out of 11
+Validation Accuracy: 0.925625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.93      0.96      7989
+      signal       0.01      0.64      0.02        11
+
+    accuracy                           0.93      8000
+   macro avg       0.51      0.78      0.49      8000
+weighted avg       1.00      0.93      0.96      8000
+</code></pre>
+
+<h3 id="comparison-with-float16-nfa-training">Comparison with Float16 NFA Training</h3>
+<figure>
+<div class="table-wrapper"><table>
+<thead>
+<tr>
+<th>Checkpoint</th>
+<th>Verification Dataset</th>
+<th>NFA Type</th>
+<th>Accuracy</th>
+<th>Background Precision</th>
+<th>Signal Precision</th>
+<th>F1 Score Background</th>
+<th>F1 Score Signal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2025-10-22 - 2400</td>
+<td>1:1 @1000</td>
+<td>Float16</td>
+<td>0.897</td>
+<td>0.91</td>
+<td>0.88</td>
+<td>0.90</td>
+<td>0.89</td>
+</tr>
+<tr>
+<td>2025-10-29 - 2200</td>
+<td>1:1 @1000</td>
+<td>Float32</td>
+<td>0.895</td>
+<td>0.86</td>
+<td>0.94</td>
+<td>0.90</td>
+<td>0.88</td>
+</tr>
+<tr>
+<td>2025-10-22 - 2400</td>
+<td>1:10 @8000</td>
+<td>Float16</td>
+<td>0.884</td>
+<td>0.99</td>
+<td>0.44</td>
+<td>0.93</td>
+<td>0.60</td>
+</tr>
+<tr>
+<td>2025-10-29 - 2200</td>
+<td>1:10 @8000</td>
+<td>Float32</td>
+<td>0.945</td>
+<td>0.98</td>
+<td>0.66</td>
+<td>0.97</td>
+<td>0.74</td>
+</tr>
+<tr>
+<td>2025-10-22 - 2400</td>
+<td>Black-box 1 @8000</td>
+<td>Float16</td>
+<td>0.806</td>
+<td>1.00</td>
+<td>0.01</td>
+<td>0.89</td>
+<td>0.01</td>
+</tr>
+<tr>
+<td>2025-10-29 - 2200</td>
+<td>Black-box 1 @8000</td>
+<td>Float32</td>
+<td>0.926</td>
+<td>1.00</td>
+<td>0.01</td>
+<td>0.96</td>
+<td>0.02</td>
+</tr>
+</tbody>
+</table></div>
+<figcaption>
+<p>All results with numeric input enabled and LoRA + NFA training with 1:1 dataset.</p>
+</figcaption>
+</figure>
+<h4 id="observations_2">Observations</h4>
+<ul>
+<li>On 1:1 dataset, float32 NFA training shows similar accuracy but with a trade-off between background and signal precision.</li>
+<li>On 1:10 dataset, float32 NFA training shows significant improvement in accuracy, background precision, signal precision, and F1 scores for both classes.</li>
+<li>On Black-box dataset, float32 NFA training shows significant improvement in accuracy and F1 score for background class, while signal precision remains low.</li>
+</ul>
 <div class="footnote">
 <hr />
 <ol>
@@ -2275,6 +2411,28 @@ weighted avg       1.00      0.98      0.99      8000
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Seperating Numeric Feature Optimization From LoRA
+        </a>
+        
+        
+
+        
+        <a href="#2025-10-29"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-10-29
+        </a>
+        
+        
+        <a href="#after-restarting-training-with-seperated-optimizers"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After restarting training with seperated optimizers
+        </a>
+        
+        <a href="#comparison-with-float16-nfa-training"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Comparison with Float16 NFA Training
         </a>
         
         
