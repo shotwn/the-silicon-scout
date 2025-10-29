@@ -1382,13 +1382,91 @@ weighted avg       1.00      0.98      0.99      8000
 ### Seperating Numeric Feature Optimization From LoRA
 I think reaching results of Checkpoint-18700 was an overall improvement compared to previous attempts. We were able to reduce the wrong signal predictions but it came at the cost of losing true signal predictions as well. So eventhough rough accuracy improved, model is still not very useful for our task. 
 
-I seperated the parameter groups for LoRA and Numeric Fusion Adapter optimizers. Now NFA has its own optimizer with a higher learning rate of 3e-3 while LoRA optimizer is kept at 3e-5. Additionally, I added another layer of SiLU + Linear projection to the NFA module to increase its capacity. With complex exponential relationships in the numerical features, I think NFA needs more capacity to model them properly. Hopefully this will help the NFA to converge better without disturbing the LoRA training.
+I seperated the optimizer parameters (AdamW8Bit) for NFA and LoRA. Now NFA uses 32 bit option with a higher learning rate of 3e-3 while LoRA optimizer is kept at 3e-5. Additionally, I added another layer of SiLU + Linear projection to the NFA module to increase its capacity. With complex exponential relationships in the numerical features, I think NFA needs more capacity to model them properly. Hopefully this will help the NFA to converge better without disturbing the LoRA training.
 
-I also added a few debug prints to monitor the NFA weights during training.
+I also added a few debug prints to monitor the NFA weights during training. Which proved useful because AdamW8Bit was not updating the NFA weights at all but giving no errors or warnings. After some investigation I found out that I had to explicitly set the NFA parameters to require gradients and use 32-bit optimization. But without proper debugging I would stay clueless for a long time.
 
-Sadly this means I have to restart the training from scratch.
+Finally, I started experimenting with tensorboard to monitor the training process better. 
 
-I will start training again but return to 1:1 dataset. I can compare the results better this way with previous attempts. Plus I think using unbalanced dataset early on might collapse the model to predicting mostly background.
+#### Restarting Training
+Sadly these changes meant I have to restart the training from scratch.
+
+I started training again but returned to 1:1 dataset. I can compare the results better this way with previous attempts. Plus I think using unbalanced dataset early on might collapse the model to predicting mostly background.
+
+## 2025-10-29
+### After restarting training with seperated optimizers
+#### Checkpoint-2200
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 498 out of 524
+Number of correct signal predictions: 397 out of 476
+Validation Accuracy: 0.895
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.86      0.95      0.90       524
+      signal       0.94      0.83      0.88       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.89      0.89      1000
+weighted avg       0.90      0.90      0.89      1000
+```
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6928 out of 7250
+Number of correct signal predictions: 628 out of 750
+Validation Accuracy: 0.9445
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.96      0.97      7250
+      signal       0.66      0.84      0.74       750
+
+    accuracy                           0.94      8000
+   macro avg       0.82      0.90      0.85      8000
+weighted avg       0.95      0.94      0.95      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7398 out of 7989
+Number of correct signal predictions: 7 out of 11
+Validation Accuracy: 0.925625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.93      0.96      7989
+      signal       0.01      0.64      0.02        11
+
+    accuracy                           0.93      8000
+   macro avg       0.51      0.78      0.49      8000
+weighted avg       1.00      0.93      0.96      8000
+```
+
+### Comparison with Float16 NFA Training
+Checkpoint         | Verification Dataset | NFA Type   | Accuracy | Background Precision | Signal Precision  | F1 Score Background | F1 Score Signal
+-------------------|----------------------|------------|----------|----------------------|-------------------|---------------------|-------------------
+2025-10-22 - 2400  | 1:1 @1000            | Float16    | 0.897    | 0.91                 | 0.88              | 0.90                | 0.89
+2025-10-29 - 2200  | 1:1 @1000            | Float32    | 0.895    | 0.86                 | 0.94              | 0.90                | 0.88 
+2025-10-22 - 2400  | 1:10 @8000           | Float16    | 0.884    | 0.99                 | 0.44              | 0.93                | 0.60
+2025-10-29 - 2200  | 1:10 @8000           | Float32    | 0.945    | 0.98                 | 0.66              | 0.97                | 0.74
+2025-10-22 - 2400  | Black-box 1 @8000    | Float16    | 0.806    | 1.00                 | 0.01              | 0.89                | 0.01
+2025-10-29 - 2200  | Black-box 1 @8000    | Float32    | 0.926    | 1.00                 | 0.01              | 0.96                | 0.02
+
+/// caption
+All results with numeric input enabled and LoRA + NFA training with 1:1 dataset.
+///
+
+
+#### Observations
+- On 1:1 dataset, float32 NFA training shows similar accuracy but with a trade-off between background and signal precision.
+- On 1:10 dataset, float32 NFA training shows significant improvement in accuracy, background precision, signal precision, and F1 scores for both classes.
+- On Black-box dataset, float32 NFA training shows significant improvement in accuracy and F1 score for background class, while signal precision remains low.
+
+### Parameters Sanity Check
+I checked the NFA weights and noticed that eventhough they are getting gradients their weights were constant. So the adapter was providing support to the model but not learning anything new. This was due ordering of the operations in the training script. LoRA being loaded after NFA was causing the optimizer to not update NFA weights properly. I have fixed this issue and restarted the training again.
+
+I'm noticing that watching training process with multiple debug metrics via tensorboard is very useful. I can see the losses and weights changing live and notice issues like this much faster. Without this monitoring, since there was a statistically significant improvement in results, I would not have suspected an issue with NFA weights.
 
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
