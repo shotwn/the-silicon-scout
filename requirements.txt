@@ -4,6 +4,8 @@
 #
 #    pip-compile
 #
+absl-py==2.3.1
+    # via tensorboard
 accelerate==1.10.1
     # via peft
 aiohappyeyeballs==2.6.1
@@ -28,6 +30,8 @@ bitsandbytes-windows==0.37.5
     # via -r requirements.in
 blosc2==3.10.1
     # via tables
+bottle==0.13.4
+    # via mkdocs-shadcn
 certifi==2025.10.5
     # via
     #   httpcore
@@ -35,8 +39,13 @@ certifi==2025.10.5
     #   requests
 charset-normalizer==3.4.4
     # via requests
+click==8.3.0
+    # via mkdocs
 colorama==0.4.6
-    # via tqdm
+    # via
+    #   click
+    #   mkdocs
+    #   tqdm
 contourpy==1.3.3
     # via matplotlib
 cycler==0.12.1
@@ -67,6 +76,14 @@ fsspec[http]==2025.9.0
     #   datasets
     #   huggingface-hub
     #   torch
+ghp-import==2.1.0
+    # via mkdocs
+gitdb==4.0.12
+    # via gitpython
+gitpython==3.1.45
+    # via mkdocs-shadcn
+grpcio==1.76.0
+    # via tensorboard
 h11==0.16.0
     # via httpcore
 h5py==3.15.0
@@ -89,14 +106,36 @@ idna==3.11
     #   requests
     #   yarl
 jinja2==3.1.6
-    # via torch
+    # via
+    #   mkdocs
+    #   torch
 joblib==1.5.2
     # via scikit-learn
 kiwisolver==1.4.9
     # via matplotlib
+markdown==3.9
+    # via
+    #   mkdocs
+    #   pymdown-extensions
+    #   tensorboard
 markupsafe==3.0.3
-    # via jinja2
+    # via
+    #   jinja2
+    #   mkdocs
+    #   werkzeug
 matplotlib==3.10.7
+    # via -r requirements.in
+mergedeep==1.3.4
+    # via
+    #   mkdocs
+    #   mkdocs-get-deps
+mkdocs==1.6.1
+    # via
+    #   -r requirements.in
+    #   mkdocs-shadcn
+mkdocs-get-deps==0.2.0
+    # via mkdocs
+mkdocs-shadcn==0.9.7
     # via -r requirements.in
 mpmath==1.3.0
     # via sympy
@@ -134,6 +173,7 @@ numpy==2.3.3
     #   scikit-learn
     #   scipy
     #   tables
+    #   tensorboard
     #   torchvision
     #   transformers
     #   vector
@@ -145,28 +185,37 @@ packaging==25.0
     #   datasets
     #   huggingface-hub
     #   matplotlib
+    #   mkdocs
     #   peft
     #   tables
+    #   tensorboard
     #   transformers
     #   vector
 pandas==2.3.3
     # via
     #   -r requirements.in
     #   datasets
+pathspec==0.12.1
+    # via mkdocs
 peft==0.17.1
     # via -r requirements.in
 pillow==11.3.0
     # via
     #   matplotlib
+    #   tensorboard
     #   torchvision
 platformdirs==4.5.0
-    # via blosc2
+    # via
+    #   blosc2
+    #   mkdocs-get-deps
 propcache==0.4.1
     # via
     #   aiohttp
     #   yarl
 protobuf==6.32.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   tensorboard
 psutil==7.1.0
     # via
     #   accelerate
@@ -177,10 +226,15 @@ py-cpuinfo==9.0.0
     #   tables
 pyarrow==21.0.0
     # via datasets
+pymdown-extensions==10.16.1
+    # via
+    #   -r requirements.in
+    #   mkdocs-shadcn
 pyparsing==3.2.5
     # via matplotlib
 python-dateutil==2.9.0.post0
     # via
+    #   ghp-import
     #   matplotlib
     #   pandas
 pytz==2025.2
@@ -190,8 +244,14 @@ pyyaml==6.0.3
     #   accelerate
     #   datasets
     #   huggingface-hub
+    #   mkdocs
+    #   mkdocs-get-deps
     #   peft
+    #   pymdown-extensions
+    #   pyyaml-env-tag
     #   transformers
+pyyaml-env-tag==1.1
+    # via mkdocs
 regex==2025.9.18
     # via transformers
 requests==2.32.5
@@ -213,12 +273,18 @@ sentencepiece==0.2.1
     # via -r requirements.in
 six==1.17.0
     # via python-dateutil
+smmap==5.0.2
+    # via gitdb
 sniffio==1.3.1
     # via anyio
 sympy==1.14.0
     # via torch
 tables==3.10.2
     # via -r requirements.in
+tensorboard==2.20.0
+    # via -r requirements.in
+tensorboard-data-server==0.7.2
+    # via tensorboard
 threadpoolctl==3.6.0
     # via scikit-learn
 tokenizers==0.22.1
@@ -246,6 +312,7 @@ typing-extensions==4.15.0
     # via
     #   aiosignal
     #   anyio
+    #   grpcio
     #   huggingface-hub
     #   tables
     #   torch
@@ -255,6 +322,10 @@ urllib3==2.5.0
     # via requests
 vector==1.6.3
     # via fastjet
+watchdog==6.0.0
+    # via mkdocs
+werkzeug==3.1.3
+    # via tensorboard
 xxhash==3.6.0
     # via datasets
 yarl==1.22.0

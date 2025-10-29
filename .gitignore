@@ -8,3 +8,4 @@ kept_checkpoints/
 *.masterKey
 additional_datasets/
 docs/site/
+logs/

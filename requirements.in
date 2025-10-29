@@ -21,3 +21,6 @@ scikit-learn
 mkdocs
 mkdocs-shadcn
 pymdown-extensions
+
+# For training monitoring
+tensorboard
