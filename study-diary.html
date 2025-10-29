@@ -1919,6 +1919,9 @@ weighted avg       1.00      0.93      0.96      8000
 <li>On 1:10 dataset, float32 NFA training shows significant improvement in accuracy, background precision, signal precision, and F1 scores for both classes.</li>
 <li>On Black-box dataset, float32 NFA training shows significant improvement in accuracy and F1 score for background class, while signal precision remains low.</li>
 </ul>
+<h3 id="parameters-sanity-check">Parameters Sanity Check</h3>
+<p>I checked the NFA weights and noticed that eventhough they are getting gradients their weights were constant. So the adapter was providing support to the model but not learning anything new. This was due ordering of the operations in the training script. LoRA being loaded after NFA was causing the optimizer to not update NFA weights properly. I have fixed this issue and restarted the training again.</p>
+<p>I'm noticing that watching training process with multiple debug metrics via tensorboard is very useful. I can see the losses and weights changing live and notice issues like this much faster. Without this monitoring, since there was a statistically significant improvement in results, I would not have suspected an issue with NFA weights.</p>
 <div class="footnote">
 <hr />
 <ol>
@@ -2433,6 +2436,12 @@ weighted avg       1.00      0.93      0.96      8000
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             Comparison with Float16 NFA Training
+        </a>
+        
+        <a href="#parameters-sanity-check"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Parameters Sanity Check
         </a>
         
         

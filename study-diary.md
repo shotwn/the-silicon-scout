@@ -1463,6 +1463,11 @@ All results with numeric input enabled and LoRA + NFA training with 1:1 dataset.
 - On 1:10 dataset, float32 NFA training shows significant improvement in accuracy, background precision, signal precision, and F1 scores for both classes.
 - On Black-box dataset, float32 NFA training shows significant improvement in accuracy and F1 score for background class, while signal precision remains low.
 
+### Parameters Sanity Check
+I checked the NFA weights and noticed that eventhough they are getting gradients their weights were constant. So the adapter was providing support to the model but not learning anything new. This was due ordering of the operations in the training script. LoRA being loaded after NFA was causing the optimizer to not update NFA weights properly. I have fixed this issue and restarted the training again.
+
+I'm noticing that watching training process with multiple debug metrics via tensorboard is very useful. I can see the losses and weights changing live and notice issues like this much faster. Without this monitoring, since there was a statistically significant improvement in results, I would not have suspected an issue with NFA weights.
+
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
