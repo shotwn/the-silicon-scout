@@ -1,4 +1,4 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from transformers import BitsAndBytesConfig, TrainingArguments, Trainer
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from torch import nn
@@ -38,6 +38,7 @@ max_memory = {
     "cpu": "30GB"
 }
 
+# Base model loading
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     quantization_config=bnb_config,
@@ -46,6 +47,17 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 model = prepare_model_for_kbit_training(model)
+
+# LoRA configuration
+lora_config = LoraConfig(
+    r=32,
+    lora_alpha=32*4,
+    target_modules=["q_proj", "v_proj"],
+    lora_dropout=0.15,
+    bias="none"
+)
+
+model = get_peft_model(model, lora_config)
 
 # Add Numeric Fusion Adapter
 numeric_dim = 16 # See data processing for chosen numeric features
@@ -59,18 +71,6 @@ for name, param in model.numeric_fusion_adapter.named_parameters():
     # param.requires_grad_(True)
     print(f"{name}: requires_grad={param.requires_grad}")
 print("")
-
-lora_config = LoraConfig(
-    r=32,
-    lora_alpha=32*4,
-    target_modules=["q_proj", "v_proj"],
-    lora_dropout=0.15,
-    bias="none"
-)
-
-model = get_peft_model(model, lora_config)
-# ! TEST: re-attach numeric fusion adapter to the PeftModel
-# model.numeric_fusion_adapter = numeric_fusion_adapter
 
 # Heck if I know, it was needed to make max_grad_norm work
 model.enable_input_require_grads()
@@ -281,6 +281,17 @@ for name, param in model.numeric_fusion_adapter.named_parameters():
 # Re-print parameter groups for verification (the manager handles the split internally)
 print(f"\nTotal trainable params: {len(all_trainable_params)}")
 
+# sanity-check optimizer includes adapter params
+missing = []
+for name, p in model.numeric_fusion_adapter.named_parameters():
+    if not any(p is q for g in optimizer.param_groups for q in g["params"]):
+        missing.append((name, p))
+if missing:
+    print(f"Error: {len(missing)} adapter params missing from optimizer!")
+    for name, p in missing:
+        print(f" - {name}")
+    raise RuntimeError("Some adapter params were not included in optimizer. Recreate optimizer after attaching adapter/PEFT.")
+
 
 """
 Custom Trainer to integrate numeric adapter
@@ -335,6 +346,9 @@ class NumericTrainer(Trainer):
         # All sequence lengths should match now
         assert inputs_embeds.shape[1] == attention_mask.shape[1] == labels.shape[1], \
             f"Shape mismatch: embeds {inputs_embeds.shape}, mask {attention_mask.shape}, labels {labels.shape}"
+        
+        # make fused embeddings track gradients (needed when using gradient_checkpointing / k-bit wrappers)
+        inputs_embeds.requires_grad_(True)
 
         # Forward pass
         outputs = model(
@@ -346,30 +360,23 @@ class NumericTrainer(Trainer):
 
         loss = outputs.loss
 
+
         """
-        # Debug: Print adapter weight stats every 16 steps
+        # Debug: Print adapter weight and gradient stats every 16 steps
         if self.state.global_step % 16 == 0:
             adapter = model.numeric_fusion_adapter
             for name, param in adapter.named_parameters():
                 if "weight" in name:
-                    print(f"[step {self.state.global_step}] {name} mean/std:",
-                        param.data.mean().item(), param.data.std().item())
+                    self.log({
+                        f"adapter_{name.replace('.', '_')}_mean": param.data.mean().item(),
+                        f"adapter_{name.replace('.', '_')}_std": param.data.std().item()
+                    })
                     if param.grad is not None:
-                        print("grad mean/std:",
-                            param.grad.mean().item(), param.grad.std().item())
+                        self.log({
+                            f"adapter_{name.replace('.', '_')}_grad_mean": param.grad.mean().item(),
+                            f"adapter_{name.replace('.', '_')}_grad_std": param.grad.std().item()
+                        })
                     break
-
-        # Debug: Print adapter gradient stats every 16 steps
-     
-        if self.state.global_step % 16 == 0:
-            for name, p in model.numeric_fusion_adapter.named_parameters():
-                if p.grad is None:
-                    print(f"[step {self.state.global_step}] {name} grad=None ❌")
-                else:
-                    print(f"[step {self.state.global_step}] {name} grad mean/std:",
-                        p.grad.mean().item(), p.grad.std().item())
-            print("---")
-        """
 
         if self.state.global_step % 36 == 0 and self.state.global_step > 0:
             # Compute total grad norm for numeric adapter
@@ -382,7 +389,8 @@ class NumericTrainer(Trainer):
                 total_norm = 0.0
                 self.log({"adapter_grad_norm": total_norm})
 
-            self.log({"loss": loss.item()})
+            self.log({"manually_logged_loss": loss.item()})
+        """
 
         return (loss, outputs) if return_outputs else loss
     
@@ -429,6 +437,49 @@ class NumericTrainer(Trainer):
             print(f"Custom numeric adapter weights not found at {adapter_path}. Starting from scratch/random initialization.")
 
 """
+Detailed Logger
+"""
+class GradLoggerCallback(TrainerCallback):
+    def __init__(self, trainer):
+        super().__init__()
+
+        self.trainer = trainer
+
+    def on_pre_optimizer_step(self, args, state, control, model=None, **kwargs):
+        log_dict = {}
+
+        if state.global_step % 16 != 0:
+            # print("Skipping grad logging at step", state.global_step, state.global_step % 16)
+            return
+        
+        adapter = model.numeric_fusion_adapter
+        for name, param in adapter.named_parameters():
+            if "weight" in name:
+                log_dict.update({
+                    f"adapter_{name.replace('.', '_')}_mean": param.data.mean().item(),
+                    f"adapter_{name.replace('.', '_')}_std": param.data.std().item()
+                })
+                if param.grad is not None:
+                    log_dict.update({
+                        f"adapter_{name.replace('.', '_')}_grad_mean": param.grad.mean().item(),
+                        f"adapter_{name.replace('.', '_')}_grad_std": param.grad.std().item()
+                    })
+                break
+
+        grads = [p.grad.norm(2) for p in adapter.parameters() if p.grad is not None]
+        if len(grads) > 0:
+            total_norm = torch.norm(torch.stack(grads), 2).item()
+            log_dict.update({"adapter_grad_norm": total_norm})
+        else:
+            total_norm = 0.0
+            log_dict.update({"adapter_grad_norm": total_norm})
+    
+        if log_dict:
+            control.should_log = True
+            self.trainer.log(log_dict)
+
+
+"""
 Training with NumericTrainer
 """
 trainer = NumericTrainer(
@@ -441,6 +492,9 @@ trainer = NumericTrainer(
     data_collator=NumericFeatureCollator(),
     # compute_loss_func=compute_loss  # our custom loss function
 )
+
+# Add detailed gradient logger callback
+trainer.add_callback(GradLoggerCallback(trainer))
 
 trainer.train(
     resume_from_checkpoint=not args.override_checkpoints
