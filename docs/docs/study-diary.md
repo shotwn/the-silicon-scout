@@ -1468,8 +1468,302 @@ I checked the NFA weights and noticed that eventhough they are getting gradients
 
 I'm noticing that watching training process with multiple debug metrics via tensorboard is very useful. I can see the losses and weights changing live and notice issues like this much faster. Without this monitoring, since there was a statistically significant improvement in results, I would not have suspected an issue with NFA weights.
 
+## 2025-10-30
+### After fixing NFA weight update issue
+#### Checkpoint-2200
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 487 out of 524
+Number of correct signal predictions: 396 out of 476
+Validation Accuracy: 0.883
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.86      0.93      0.89       524
+      signal       0.91      0.83      0.87       476
+
+    accuracy                           0.88      1000
+   macro avg       0.89      0.88      0.88      1000
+weighted avg       0.89      0.88      0.88      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6808 out of 7250
+Number of correct signal predictions: 628 out of 750
+Validation Accuracy: 0.9295
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.98      0.94      0.96      7250
+      signal       0.59      0.84      0.69       750
+
+    accuracy                           0.93      8000
+   macro avg       0.78      0.89      0.83      8000
+weighted avg       0.95      0.93      0.93      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7129 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.89225
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.89      0.94      7989
+      signal       0.01      0.82      0.02        11
+
+    accuracy                           0.89      8000
+   macro avg       0.51      0.86      0.48      8000
+weighted avg       1.00      0.89      0.94      8000
+```
+
+#### Checkpoint-4600
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 463 out of 524
+Number of correct signal predictions: 435 out of 476
+Validation Accuracy: 0.898
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.92      0.88      0.90       524
+      signal       0.88      0.91      0.90       476
+
+    accuracy                           0.90      1000
+   macro avg       0.90      0.90      0.90      1000
+weighted avg       0.90      0.90      0.90      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6408 out of 7250
+Number of correct signal predictions: 691 out of 750
+Validation Accuracy: 0.887375
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.88      0.93      7250
+      signal       0.45      0.92      0.61       750
+
+    accuracy                           0.89      8000
+   macro avg       0.72      0.90      0.77      8000
+weighted avg       0.94      0.89      0.90      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 6462 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.808875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.81      0.89      7989
+      signal       0.01      0.82      0.01        11
+
+    accuracy                           0.81      8000
+   macro avg       0.50      0.81      0.45      8000
+weighted avg       1.00      0.81      0.89      8000
+```
+
+Results are dissapointing. NFA weights are changing now but model performance is degraded compared to previous validation run at Checkpoint-2200. Previous attempt before fixing NFA weight update issue was performing better also. 
+
+I will keep the training but reducing learning rate for NFA to 3e-4. Loss was still decreasing but with a lower rate now, so I hope this will lead to better results. If not, I will switch to imbalanced dataset for rest of the training run.
+
+## 2025-10-31
+### After lowering NFA learning rate & overnight training
+#### Checkpoint-6900
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 441 out of 524
+Number of correct signal predictions: 445 out of 476
+Validation Accuracy: 0.886
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.93      0.84      0.89       524
+      signal       0.84      0.93      0.89       476
+
+    accuracy                           0.89      1000
+   macro avg       0.89      0.89      0.89      1000
+weighted avg       0.89      0.89      0.89      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 6101 out of 7250
+Number of correct signal predictions: 713 out of 750
+Validation Accuracy: 0.85175
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.99      0.84      0.91      7250
+      signal       0.38      0.95      0.55       750
+
+    accuracy                           0.85      8000
+   macro avg       0.69      0.90      0.73      8000
+weighted avg       0.94      0.85      0.88      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 6070 out of 7989
+Number of correct signal predictions: 9 out of 11
+Validation Accuracy: 0.759875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.76      0.86      7989
+      signal       0.00      0.82      0.01        11
+
+    accuracy                           0.76      8000
+   macro avg       0.50      0.79      0.44      8000
+weighted avg       1.00      0.76      0.86      8000
+```
+
+### Summary of Results So Far
+On checkpoint-6900, model performance has degraded further compared to previous checkpoints.
+
+I changed training dataset to imbalanced 1:10 ratio to see if that helps the model to generalize better on black-box dataset.
+
+### After Further Training on Imbalanced Dataset
+#### Checkpoint-8400
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 355 out of 476
+Validation Accuracy: 0.872
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.81      0.99      0.89       524
+      signal       0.98      0.75      0.85       476
+
+    accuracy                           0.87      1000
+   macro avg       0.90      0.87      0.87      1000
+weighted avg       0.89      0.87      0.87      1000
+```
+
+Slightly better results than checkpoint-6900. But this seems like because background predictions increased. Signal predictions are even lower than before.
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7135 out of 7250
+Number of correct signal predictions: 566 out of 750
+Validation Accuracy: 0.962625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.98      0.98      7250
+      signal       0.83      0.75      0.79       750
+
+    accuracy                           0.96      8000
+   macro avg       0.90      0.87      0.89      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+Looks like an improvement over the surface. Again model is favoring background predictions more, so the wrong signal predictions are reduced but true signal predictions are lost as well. This effects the scores positively but it is expected since we trained on imbalanced dataset. As the training continues, it might end up collapsing to predicting only background.
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7747 out of 7989
+Number of correct signal predictions: 4 out of 11
+Number of correct unknown predictions: 0 out of 0
+Validation Accuracy: 0.968875
+WARNING: Number of unknown predictions: 1
+              precision    recall  f1-score   support
+
+  background       1.00      0.97      0.98      7989
+      signal       0.02      0.36      0.03        11
+     unknown       0.00      0.00      0.00         0
+
+    accuracy                           0.97      8000
+   macro avg       0.34      0.44      0.34      8000
+weighted avg       1.00      0.97      0.98      8000
+```
+Here too model is favoring background predictions heavily. So false signal predictions are reduced but true signal predictions are also lower than before.
+
+I will continue training overnight and see if the model improves. I might try to change the loss function or NFA architecture if results do not improve further.
+
+## 2025-11-01
+### After Further Training on Imbalanced Dataset Overnight
+#### Checkpoint-10200
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 319 out of 476
+Validation Accuracy: 0.836
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.77      0.99      0.86       524
+      signal       0.98      0.67      0.80       476
+
+    accuracy                           0.84      1000
+   macro avg       0.87      0.83      0.83      1000
+weighted avg       0.87      0.84      0.83      1000
+
+SIC (Significance Improvement Characteristic): 5.7983
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7174 out of 7250
+Number of correct signal predictions: 528 out of 750
+Validation Accuracy: 0.96275
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.87      0.70      0.78       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.85      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+
+SIC (Significance Improvement Characteristic): 6.8760
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7832 out of 7989
+Number of correct signal predictions: 2 out of 11
+Validation Accuracy: 0.97925
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.01      0.18      0.02        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.58      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+
+SIC (Significance Improvement Characteristic): 1.2970
+```
+
+With these I also added SIC (Significance Improvement Characteristic) so I can compare the model performance better.[^5] SIC is calculated as:
+$$
+SIC = \frac{\epsilon_S}{\sqrt{\epsilon_B}}
+$$
+
+Where the signal efficiency is defined as:
+$$
+\epsilon_S = \frac{N_{correct\_{signal}}}{N_{total\_{signal}}}
+$$
+
+and background efficiency defined as:
+$$
+\epsilon_B = \frac{N_{selected\_{background}}}{N_{total\_{background}}}
+$$
+
+Notice selected background is the number of background events that are incorrectly classified as signal. This metric gives an idea of how well the model is able to distinguish signal from background, taking into account both true positive rate and false positive rate.
+
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
 [^3]: [Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3)
 [^4]: [Hugging Face Transformers](https://huggingface.co/docs/transformers/en/index)
+[^5]: [Agents of Discovery](https://arxiv.org/abs/2509.08535)
