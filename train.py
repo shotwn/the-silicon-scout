@@ -83,8 +83,8 @@ tokenizer.pad_token = tokenizer.eos_token
 Data Loading and Preprocessing
 """
 # Load dataset
-ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
-#ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
+#ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
+ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
 def format_example(example):
     jets = example["jets"]
     s = "[INST] Classify this event as 'signal' or 'background'.\n"
@@ -228,7 +228,15 @@ training_args = TrainingArguments(
     max_grad_norm=1.0, # Added gradient clipping, after custom weighted loss we were having huge grad_norms (>500) in initial checkpoints
     #! Took forever to find. Important to keep numeric_features, make sure to clean other unused columns
     remove_unused_columns=False, 
-    report_to="tensorboard"  # Enable TensorBoard logging
+    report_to="tensorboard",  # Enable TensorBoard logging
+    label_smoothing_factor=0.1,  
+    # Helps prevent overconfidence by softening targets.
+    # This makes the model less certain on noisy or imbalanced labels 
+    # (like "signal" vs "background" in LHCO) → smoother loss curve.
+
+    weight_decay=0.003,
+    # Adds mild L2 regularization to prevent adapter & LoRA weights 
+    # from growing too large. Helps generalization & avoids overfitting.
 )
 
 
@@ -258,8 +266,12 @@ base_lr = training_args.learning_rate
 optimizer = AdamW8bit(all_trainable_params, lr=base_lr) 
 
 # Override specific parameters for 32-bit optimization and higher LR
-numeric_lr = base_lr * 100 # 0.003
-numeric_config = {'optim_bits': 32, 'lr': numeric_lr, 'weight_decay': 0.0}
+numeric_lr = base_lr * 10 # from 3e-5 → 3e-4 (10× faster for adapter)
+numeric_config = {
+    'optim_bits': 32, 
+    'lr': numeric_lr, 
+    'weight_decay': 0.001 # Slightly lower weight decay for adapter
+} 
 
 print("\nApplying GlobalOptimManager overrides for Numeric Fusion Adapter:")
 # Override all parameters in the adapter module
