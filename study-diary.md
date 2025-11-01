@@ -1687,7 +1687,56 @@ Here too model is favoring background predictions heavily. So false signal predi
 
 I will continue training overnight and see if the model improves. I might try to change the loss function or NFA architecture if results do not improve further.
 
+## 2025-11-01
+### After Further Training on Imbalanced Dataset Overnight
+#### Checkpoint-10200
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 517 out of 524
+Number of correct signal predictions: 319 out of 476
+Validation Accuracy: 0.836
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
 
+  background       0.77      0.99      0.86       524
+      signal       0.98      0.67      0.80       476
+
+    accuracy                           0.84      1000
+   macro avg       0.87      0.83      0.83      1000
+weighted avg       0.87      0.84      0.83      1000
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7174 out of 7250
+Number of correct signal predictions: 528 out of 750
+Validation Accuracy: 0.96275
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.87      0.70      0.78       750
+
+    accuracy                           0.96      8000
+   macro avg       0.92      0.85      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7832 out of 7989
+Number of correct signal predictions: 2 out of 11
+Validation Accuracy: 0.97925
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.01      0.18      0.02        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.58      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+```
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
