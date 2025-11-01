@@ -261,3 +261,24 @@ else:
 # Optional: more metrics with sklearn
 from sklearn.metrics import classification_report
 print(classification_report(labels, preds, target_names=target_names))
+
+# Added: SIC calculation
+background_total = labels.count("background")
+signal_total = labels.count("signal")
+signal_selected = sum(1 for p, l in zip(preds, labels) if p == "signal" and l == "signal")
+
+# Fraction of true signal events correctly identified (epsilon_s)
+signal_efficiency = signal_selected / signal_total if signal_total > 0 else 0.0
+
+# Fraction of background events incorrectly identified as signal (epsilon_b)
+background_selected = sum(1 for p, l in zip(preds, labels) if p == "signal" and l == "background")
+background_efficiency = background_selected / background_total if background_total > 0 else 0.0
+
+# Significance Improvement Characteristic (SIC)
+if background_efficiency > 0:
+    sic = signal_efficiency / (background_efficiency ** 0.5)
+    print(f"SIC (Significance Improvement Characteristic): {sic:.4f}")
+else:
+    print("SIC (Significance Improvement Characteristic): Undefined (no background events selected as signal)")
+
+
