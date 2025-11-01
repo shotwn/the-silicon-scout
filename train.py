@@ -212,7 +212,9 @@ tokenized_ds.set_format(
 
 # Setup training
 # TODO: Carry me over to Trainer
+run_name = "weighted_loss_test_3"
 training_args = TrainingArguments(
+    run_name=run_name,
     output_dir=args.output_dir,
     per_device_train_batch_size=1,
     gradient_accumulation_steps=16, # simulate larger batch size
@@ -222,7 +224,7 @@ training_args = TrainingArguments(
     save_steps=100,
     eval_steps=100,
     logging_steps=36,
-    logging_dir="./logs",
+    logging_dir=f"./logs/{run_name}",
     gradient_checkpointing=True, # Transformer was warning me to set this. ! Changed to False for testing
     gradient_checkpointing_kwargs={'use_reentrant': False},  # Transformer was warning me to set this. Appearently in future versions it will default to False.
     max_grad_norm=1.0, # Added gradient clipping, after custom weighted loss we were having huge grad_norms (>500) in initial checkpoints
@@ -309,6 +311,48 @@ if missing:
 Custom Trainer to integrate numeric adapter
 """
 class NumericTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        # Initialize the base Trainer
+        super().__init__(*args, **kwargs)
+
+        # Setup for Weighted Loss Function to handle class imbalance
+        #! Following is from Gemini with my touch-ups. Likely won't work properly yet.
+        # 1. Get Token IDs for the final labels
+        self.signal_ids = self.tokenizer.encode("signal", add_special_tokens=False)
+        self.background_ids = self.tokenizer.encode("background", add_special_tokens=False)
+
+        print(f"Signal token IDs: {self.signal_ids}")
+        print(f"Background token IDs: {self.background_ids}")
+
+
+        # 2. Create Vocab-Sized Weight Tensor
+        vocab_size = self.model.config.vocab_size
+        # Initialize all tokens to weight 1.0
+        # Use CPU first for safety, then move to device, ensure float32
+        loss_weights = torch.ones(vocab_size, dtype=torch.float32)
+
+        # 3. Apply Class Weights
+        weight_signal = 10.0 # High weight for rare class
+        weight_background = 1.0 # Normal weight for common class
+        
+        # Map token IDs to their weights
+        for signal_id in self.signal_ids:
+            loss_weights[signal_id] = weight_signal
+
+        for background_id in self.background_ids:
+            loss_weights[background_id] = weight_background
+
+        # Move weights to the device
+        self.loss_weights = loss_weights.to(self.args.device)
+
+        # 4. Define the Weighted Criterion
+        # Note: We must exclude label_smoothing_factor here as we are manually 
+        # using CrossEntropyLoss, not the one from TrainingArguments.
+        self.criterion = nn.CrossEntropyLoss(
+            weight=self.loss_weights, 
+            ignore_index=-100 # Keep this to ignore all tokens that are not the final label
+        )
+
     def compute_loss(
         self,
         model: nn.Module,
@@ -363,48 +407,144 @@ class NumericTrainer(Trainer):
         inputs_embeds.requires_grad_(True)
 
         # Forward pass
+        """
         outputs = model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             labels=labels,
             **inputs  # any extra keys are forwarded safely
         )
-
-        loss = outputs.loss
-
-
         """
-        # Debug: Print adapter weight and gradient stats every 16 steps
-        if self.state.global_step % 16 == 0:
-            adapter = model.numeric_fusion_adapter
-            for name, param in adapter.named_parameters():
-                if "weight" in name:
-                    self.log({
-                        f"adapter_{name.replace('.', '_')}_mean": param.data.mean().item(),
-                        f"adapter_{name.replace('.', '_')}_std": param.data.std().item()
-                    })
-                    if param.grad is not None:
-                        self.log({
-                            f"adapter_{name.replace('.', '_')}_grad_mean": param.grad.mean().item(),
-                            f"adapter_{name.replace('.', '_')}_grad_std": param.grad.std().item()
-                        })
-                    break
 
-        if self.state.global_step % 36 == 0 and self.state.global_step > 0:
-            # Compute total grad norm for numeric adapter
-            adapter = model.numeric_fusion_adapter
-            grads = [p.grad.norm(2) for p in adapter.parameters() if p.grad is not None]
-            if len(grads) > 0:
-                total_norm = torch.norm(torch.stack(grads), 2).item()
-                self.log({"adapter_grad_norm": total_norm})
-            else:
-                total_norm = 0.0
-                self.log({"adapter_grad_norm": total_norm})
+        # Custom forward without labels to avoid default loss computation
+        # We will compute our own weighted loss below
+        outputs = model(
+            inputs_embeds=inputs_embeds,
+            attention_mask=attention_mask,
+            # labels=labels, # <-- REMOVE THIS LINE
+            output_attentions=False,
+            output_hidden_states=False
+        )
 
-            self.log({"manually_logged_loss": loss.item()})
-        """
+        #! Following is from Gemini with my touch-ups. Likely won't work properly yet.
+        # 1. Extract Logits and Labels
+        logits = outputs.logits
+        # Logits: (batch, seq_len, vocab_size)
+        # Labels: (batch, seq_len)
+
+        # Identify non-masked labels (where label != -100)
+        non_masked_labels = (labels != -100)
+        
+        # Find the index of the LAST non-masked token.
+        # This is equivalent to finding the index of the 'signal' or 'background' token.
+        
+        # Find the index of the last TRUE value in the non_masked_labels tensor (along dim 1: sequence length)
+        # torch.argmax gives the index of the first TRUE, so we reverse the tensor first.
+        # labels.shape[1] - 1 gives the max index.
+        # The index of the first TRUE in the reversed tensor is the distance from the end of the sequence.
+        # Subtracting this distance from the max index gives the true index.
+        reversed_mask = non_masked_labels.flip(dims=[1])
+        
+        # Find the first TRUE in the reversed mask (this is the distance from the end)
+        distance_from_end = torch.argmax(reversed_mask.long(), dim=1)
+        
+        # Calculate the actual index (sequence length - 1 - distance_from_end)
+        seq_len = labels.shape[1]
+        classification_index = seq_len - 1 - distance_from_end
+        
+        # 2. Extract Logits and Labels using the determined index
+        # We use gather to select the logits slice corresponding to the classification index for each batch item.
+        # classification_index is (B), we need to expand it for gather.
+        
+        # Logits extraction: (B, V)
+        # We need to reshape classification_index from (B) to (B, 1, 1) and expand it to match the vocab_size
+        index_for_gather = classification_index.view(-1, 1, 1).expand(-1, 1, logits.shape[-1])
+        last_logits = torch.gather(logits, 1, index_for_gather).squeeze(1) # (B, V)
+        
+        # Labels extraction: (B)
+        last_labels = torch.gather(labels, 1, classification_index.view(-1, 1)).squeeze(1) # (B,)
+
+        # print(torch.unique(last_labels))
+        
+        # 2. SANITY CHECK (The requested check!)
+        # Check that the extracted labels are not masked
+        # The true labels are token IDs (typically > 100). Masked labels are -100.
+        is_masked = last_labels == -100
+        if is_masked.any():
+             # Find the batch indices where this is true for debugging
+             bad_indices = torch.where(is_masked)[0]
+             # If the token is masked, it means the answer was truncated. This is a data bug.
+             raise RuntimeError(
+                f"FATAL LOSS ERROR: Classification label at index {classification_index} is masked (-100) "
+                f"for batch indices: {bad_indices}. "
+                "This indicates the 'signal'/'background' token was truncated during tokenization. "
+                "Increase max_length or fix the tokenization logic."
+            )
+
+        # 3. Ignore -100 labels (although -100 should only be present on the numeric token, 
+        # this ensures robustness)
+        # mask = last_labels != -100
+        
+        # 4. Compute Weighted Loss
+        # criterion: nn.CrossEntropyLoss(weight=self.loss_weights, ignore_index=-100)
+        # We compute the loss on the masked tensors.
+        loss = self.criterion(
+            last_logits, 
+            last_labels
+        )
+
+        # DEBUG: run only occasionally
+        if getattr(self, "state", None) and (self.state.global_step % 16 == 0):
+            with torch.no_grad():
+                # shape checks
+                print("DBG step", getattr(self.state, "global_step", None))
+                print("inputs_embeds.dtype", inputs_embeds.dtype, "logits.dtype", logits.dtype)
+                print("logits.shape", logits.shape, "labels.shape", labels.shape)
+
+                # classification_index for each batch element (you already computed it)
+                print("classification_index:", classification_index.cpu().tolist())
+
+                # last_labels and their decoded tokens
+                print("last_labels tensor:", last_labels)
+                try:
+                    decoded_true = [self.tokenizer.decode([int(x)]) for x in last_labels.cpu().tolist()]
+                except Exception:
+                    decoded_true = ["<decode-error>"]
+                print("decoded_true:", decoded_true)
+
+                # predictions
+                pred_ids = last_logits.argmax(dim=-1)    # (B,)
+                pred_top1 = pred_ids
+                print("pred_ids:", pred_ids)
+                try:
+                    decoded_pred = [self.tokenizer.decode([int(x)]) for x in pred_ids.cpu().tolist()]
+                except Exception:
+                    decoded_pred = ["<decode-error>"]
+                print("decoded_pred:", decoded_pred)
+
+                # softmax prob of true class
+                probs = torch.softmax(last_logits, dim=-1)
+                true_probs = probs.gather(1, last_labels.view(-1,1)).squeeze(1)
+                topk = torch.topk(probs, k=5, dim=-1)
+                print("true_probs:", true_probs.cpu().tolist())
+                print("top5_ids:", topk.indices.cpu().tolist())
+                print("top5_probs:", topk.values.cpu().tolist())
+
+                # raw logits stats
+                print("last_logits mean/std/min/max:", last_logits.mean().item(), last_logits.std().item(),
+                    last_logits.min().item(), last_logits.max().item())
+
+                # loss computed manually (same as your criterion)
+                manual_loss = self.criterion(last_logits, last_labels)
+                print("criterion loss:", manual_loss.item())
+
 
         return (loss, outputs) if return_outputs else loss
+
+        # loss = outputs.loss
+
+
+        # return (loss, outputs) if return_outputs else loss
     
     # Override _save to manually save the custom adapter weights
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
@@ -443,7 +583,7 @@ class NumericTrainer(Trainer):
             
             # The model attribute here is the PeftModel which holds the base model
             # with our custom adapter attached.
-            self.model.numeric_fusion_adapter.load_state_dict(adapter_state_dict)
+            self.model.numeric_fusion_adapter.load_state_dict(adapter_state_dict, strict=False)
             print("Successfully loaded custom numeric adapter weights.")
         else:
             print(f"Custom numeric adapter weights not found at {adapter_path}. Starting from scratch/random initialization.")

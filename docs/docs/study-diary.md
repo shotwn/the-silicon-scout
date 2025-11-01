@@ -1761,6 +1761,13 @@ $$
 
 Notice selected background is the number of background events that are incorrectly classified as signal. This metric gives an idea of how well the model is able to distinguish signal from background, taking into account both true positive rate and false positive rate.
 
+### Class Weighted Close Entropy Loss (CW-CE)
+After tagging current version as 0.3.1, I have modified the loss function to use class weighted close entropy loss. This should help the model to focus more on the minority class (signal) during training as I continue with imbalanced dataset.
+
+Implementation is straight forward by disabling default loss calculation on forward pass and adding class weights to the standard cross entropy loss function (`nn.CrossEntropyLoss(weight=class_weights)`).
+
+I will start training again from checkpoint-10200 and observe the changes via tensorboard.
+
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
