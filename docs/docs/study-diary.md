@@ -1768,6 +1768,48 @@ Implementation is straight forward by disabling default loss calculation on forw
 
 I will start training again from checkpoint-10200 and observe the changes via tensorboard.
 
+#### Result of CW-CE after 2000 steps
+I did not train with CW-CE enough for a validation run. It became obvious early on from tensorboard that loss was dropping to ~0 due background class domination and rarely jumping back up when signal samples were seen. Which was causing a lot of GPU time without any learning. 
+
+One way to artificially increase loss was to run loss calculation over entire unmasked prompt instead of only the last token (answer). But it was obvious that CW-CE was not working as intended here.
+
+So I stopped the training and decided to try focal loss instead.
+
+### Focal Loss
+Focal loss is designed to address class imbalance by down-weighting easy examples and focusing training on hard negatives. This should help the model to learn better on minority class (signal) samples.
+
+To be frank I understand focal loss only superficially. But it seemed logical to try it out here.  
+Focal loss is defined as:
+
+$$
+\mathcal{L}_{\text{focal}} = - \, \alpha_t \, (1 - p_t)^{\gamma} \, \log(p_t)
+$$
+
+| Symbol                   | Meaning                                     | Notes                                                    |
+| :---------------------   | :------------------------------------------ | :------------------------------------------------------- |
+| $p_t$                    | The predicted probability of the true class | ( p_t = p ) if ( y=1 ), else ( p_t = 1 - p )             |
+| $\log(p_t)$              | Logarithm of the true-class probability     | Same term as in cross-entropy                            |
+| $(1 - p_t)^{\gamma}$     | **Focusing term**                           | Down-weights easy examples where ( p_t ) is high         |
+| $\gamma \ge 0$           | **Focusing parameter**                      | Higher γ increases focus on hard examples (typical: 1–3) |
+| $\alpha_t$               | **Class weight**                            | Balances class frequency (e.g., rare class α=0.75)       |
+
+- For $\alpha_t$ I used 1:10 ratio (background:signal) so that signal class gets higher weight. But I noticed when I keep the weights $\alpha_t$ low (as 1:10) the loss becomes very small overall and model does not learn well. So I increased the weights to 10:100 (background:signal) to have a higher overall loss value.
+- For $\gamma$ I used 2.0 initially but I was getting "0" with background samples so I reduced it to 1.0 in order to have at least some loss on easy background samples. 
+
+I tried to integrate this to the training script, but it actually destroyed the language modeling capability of the base model. After some trial and error with different loss calculations; I thought I can use this loss only on the single word answer. But that proved problematic because model was appearently using the entire prompt to predict the answer token.
+
+## 2025-11-03
+### New Approach on Numeric Feature Adapter
+After being frustrated on not being able to implement my custom weight structure, I went back and checked my entire prompt / label construction logic. I found some issues there that might be causing problems. Such as forementioned loss calculation over entire prompt instead of only answer token.
+
+But also I decided it was time to rethink where I inject the numeric feature adapter into the prompt structure. Instead of having a first-token enhancement, which was offsetting things and making it hard to enhance/debug the loss calculation, I decided to create a special token at the end of the prompt just before the answer. This way I don't need to offset anything.
+
+I updated the training and validation scripts accordingly and restarted the training from scratch with 1:10 dataset.
+
+I disabled the custom focal loss for now so I can verify the new NFA injection method is working properly first. Once verified I will try to reintroduce focal loss or other custom loss functions. What I have in mind at the moment is to calculate using default loss function up to a point, then add custom loss only on the answer token as a sum. This way we can have a fast start, but then push the model to learn better on the answer token. Of course changing the loss function like this might also cause instability so I will have to monitor it closely.
+
+
+
 
 [^1]: [LHC Olympics 2020 Homepage](https://lhco2020.github.io/homepage/)
 [^2]: [R&D Dataset](https://zenodo.org/records/4536377)
