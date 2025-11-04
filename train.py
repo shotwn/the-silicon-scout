@@ -2,6 +2,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from transformers import BitsAndBytesConfig, TrainingArguments, Trainer
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from torch import nn
+import torch.nn.functional as F
 from datasets import load_dataset
 import torch
 from argparse import ArgumentParser
@@ -14,6 +15,7 @@ arg_parser = ArgumentParser()
 arg_parser.add_argument("--override_checkpoints", action="store_true", default=False, required=False, help="Whether to continue training from existing checkpoints or override them.")
 arg_parser.add_argument("--reset_dataset_cache", action="store_true", default=False, required=False, help="Whether to reset the dataset cache.")
 arg_parser.add_argument("--output_dir", type=str, default="lora_lhco", required=False, help="Directory to save LoRA checkpoints and numeric fusion adapter weights.")
+arg_parser.add_argument("--debug_loss_function", action="store_true", default=False, required=False, help="Whether to enable debug print (console) for the loss function.")
 args = arg_parser.parse_args()
 
 print("PyTorch version:", torch.__version__)
@@ -22,7 +24,7 @@ print("Number of GPUs:", torch.cuda.device_count())
 print("Will Override Existing Checkpoints" if args.override_checkpoints else "Will Resume from Existing Checkpoints")
 
 # Example: using a 7B model
-model_name = "mistralai/Mistral-7B-Instruct-v0.3"  # example name
+model_name = "mistralai/Mistral-7B-Instruct-v0.3"
 
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -78,6 +80,25 @@ model.enable_input_require_grads()
 # Important: Set tokenizer.pad_token to eos_token
 tokenizer.pad_token = tokenizer.eos_token
 
+"""
+Numeric Fusion Adapter Placeholder Token Initialization
+"""
+JET_FEATURE_TOKEN_STR = "<JET_FEATURES>"
+JET_FEATURE_TOKEN_ID = tokenizer.convert_tokens_to_ids(JET_FEATURE_TOKEN_STR)
+# If the token is not already in the tokenizer, add it
+if JET_FEATURE_TOKEN_ID is None or JET_FEATURE_TOKEN_ID == tokenizer.unk_token_id:
+    # Prepare a custom token for numeric features
+    # Add the custom token to the tokenizer
+    tokenizer.add_special_tokens({'additional_special_tokens': [JET_FEATURE_TOKEN_STR]})
+
+    # Resize the model embeddings to include the new token
+    model.resize_token_embeddings(len(tokenizer))
+
+    # Fetch its actual numeric ID
+    JET_FEATURE_TOKEN_ID = tokenizer.convert_tokens_to_ids(JET_FEATURE_TOKEN_STR)
+    print(f"Added '{JET_FEATURE_TOKEN_STR}' token with ID: {JET_FEATURE_TOKEN_ID}")
+else:
+    print(f"'{JET_FEATURE_TOKEN_STR}' token exists with ID: {JET_FEATURE_TOKEN_ID}")
 
 """
 Data Loading and Preprocessing
@@ -85,6 +106,7 @@ Data Loading and Preprocessing
 # Load dataset
 #ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
 ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
+
 def format_example(example):
     jets = example["jets"]
     s = "[INST] Classify this event as 'signal' or 'background'.\n"
@@ -94,7 +116,7 @@ def format_example(example):
         for dR_jet, dR_value in j["dR"].items():
             dR_value = dR_value if dR_value is not None else 0.0
             s += f"    dR_{dR_jet}={dR_value:.2f}\n"
-    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}[/INST]\n"
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}{JET_FEATURE_TOKEN_STR}[/INST] "
 
     # HF Trainer expects 'labels' key for supervised fine-tuning
     return {
@@ -110,12 +132,25 @@ ds = ds.map(format_example, load_from_cache_file=not args.reset_dataset_cache)
 
 def tokenize_example_refined(example, max_length=512):
     # 1. Construct the full sequence: Prompt + Answer
+    # Prompt ends with space before answer
+    # There is a space after the answer to avoid tokenization issues
     # We add a space to ensure tokenization of the answer doesn't merge with the prompt's last token
     prompt = example["input_text"]
     answer = example["labels"] # 'signal' or 'background'
-    full_text = prompt + answer
+    full_text = f"{prompt}{answer} "
 
-    # 2. Tokenize the Prompt (Input Text) to find its length
+    # 2. Tokenize the Full Sequence (Prompt + Answer)
+    # This generates the input_ids, attention_mask, etc., and handles padding/truncation.
+    full_encoding = tokenizer(
+        full_text,
+        truncation=True,
+        padding="max_length",
+        max_length=max_length,
+        return_tensors=None,
+        add_special_tokens=False
+    )
+
+    # 3. Tokenize the Prompt (Input Text) to find its length
     # Use 'add_special_tokens=False' to avoid counting special tokens in the prompt length
     # if the prompt already contains them (like [/INST]).
     prompt_tokens = tokenizer(
@@ -126,31 +161,35 @@ def tokenize_example_refined(example, max_length=512):
     )
     prompt_len = len(prompt_tokens["input_ids"])
 
-    # 3. Tokenize the Full Sequence (Prompt + Answer)
-    # This generates the input_ids, attention_mask, etc., and handles padding/truncation.
-    full_encoding = tokenizer(
-        full_text,
-        truncation=True,
-        padding="max_length",
-        max_length=max_length,
-    )
-
     # 4. Construct the Labels Array
     labels = full_encoding["input_ids"].copy()
 
-    # Mask out the prompt tokens with -100
-    # The model should not learn from the prompt itself.
-    labels[:prompt_len] = [-100] * prompt_len
-
     # Mask out the padding tokens with -100
-    # The padding tokens are at the end, indicated by the attention mask being 0.
-    # Note: If the tokenizer pads with EOS, this step is crucial.
+    # This model is left-padded, so we find where the left padding ends.
+    where_left_padding_ends = 0
     for i in range(max_length):
         if full_encoding["attention_mask"][i] == 0:
             labels[i] = -100
-    
+            where_left_padding_ends = i
+        else:
+            break # First non-padded token index
+
+    # Mask out the prompt tokens with -100
+    # The model should not learn from the prompt itself.
+    # Mask out prompt tokens (the first part of the non-padded region)
+    start_idx = where_left_padding_ends
+    end_idx = min(start_idx + prompt_len, max_length)
+    labels[start_idx:end_idx] = [-100] * (end_idx - start_idx)
+
     # Assign the final labels array
     full_encoding["labels"] = labels
+
+    # Print labels (masked) for debugging
+    """
+    labels_without_mask = [lbl if lbl != -100 else tokenizer.pad_token_id for lbl in labels]
+    decoded_labels = tokenizer.decode(labels_without_mask, skip_special_tokens=False)
+    print("Decoded labels with masking:", decoded_labels)
+    """
 
     # ===== Build numeric vector =====
     # Use fixed order to extract numeric features
@@ -211,8 +250,8 @@ tokenized_ds.set_format(
 )
 
 # Setup training
-# TODO: Carry me over to Trainer
-run_name = "weighted_loss_test_3"
+# * Set run_name properly for logging
+run_name = "token_placeholder_NFA_001"
 training_args = TrainingArguments(
     run_name=run_name,
     output_dir=args.output_dir,
@@ -231,12 +270,12 @@ training_args = TrainingArguments(
     #! Took forever to find. Important to keep numeric_features, make sure to clean other unused columns
     remove_unused_columns=False, 
     report_to="tensorboard",  # Enable TensorBoard logging
-    label_smoothing_factor=0.1,  
+    #label_smoothing_factor=0.1,  
     # Helps prevent overconfidence by softening targets.
     # This makes the model less certain on noisy or imbalanced labels 
     # (like "signal" vs "background" in LHCO) → smoother loss curve.
 
-    weight_decay=0.003,
+    #weight_decay=0.003,
     # Adds mild L2 regularization to prevent adapter & LoRA weights 
     # from growing too large. Helps generalization & avoids overfitting.
 )
@@ -272,7 +311,7 @@ numeric_lr = base_lr * 10 # from 3e-5 → 3e-4 (10× faster for adapter)
 numeric_config = {
     'optim_bits': 32, 
     'lr': numeric_lr, 
-    'weight_decay': 0.001 # Slightly lower weight decay for adapter
+    #'weight_decay': 0.001 # Slightly lower weight decay for adapter
 } 
 
 print("\nApplying GlobalOptimManager overrides for Numeric Fusion Adapter:")
@@ -318,8 +357,23 @@ class NumericTrainer(Trainer):
         # Setup for Weighted Loss Function to handle class imbalance
         #! Following is from Gemini with my touch-ups. Likely won't work properly yet.
         # 1. Get Token IDs for the final labels
-        self.signal_ids = self.tokenizer.encode("signal", add_special_tokens=False)
-        self.background_ids = self.tokenizer.encode("background", add_special_tokens=False)
+        # See debug output in compute_loss to verify these IDs
+        # I was sure only "\nsignal" and "\nbackground" would be sufficient but if the prompt changes, wider coverage can be needed.
+        white_space_ids = self.processing_class.encode(" ", add_special_tokens=False)
+        white_space_ids += self.processing_class.encode("\n", add_special_tokens=False)
+
+        #signal_ids = self.processing_class.encode("signal", add_special_tokens=False)
+        #signal_with_space_ids = self.processing_class.encode(" signal", add_special_tokens=False)
+        signal_with_newline_ids = self.processing_class.encode(" signal", add_special_tokens=False)
+
+        #self.signal_ids = signal_ids + signal_with_space_ids + signal_with_newline_ids - white_space_ids
+        self.signal_ids = [id for id in signal_with_newline_ids if id not in white_space_ids]
+        
+        #background_ids = self.processing_class.encode("background", add_special_tokens=False)
+        #background_with_space_ids = self.processing_class.encode(" background", add_special_tokens=False)
+        background_with_newline_ids = self.processing_class.encode(" background", add_special_tokens=False)
+
+        self.background_ids = [id for id in background_with_newline_ids if id not in white_space_ids]
 
         print(f"Signal token IDs: {self.signal_ids}")
         print(f"Background token IDs: {self.background_ids}")
@@ -345,13 +399,11 @@ class NumericTrainer(Trainer):
         # Move weights to the device
         self.loss_weights = loss_weights.to(self.args.device)
 
-        # 4. Define the Weighted Criterion
-        # Note: We must exclude label_smoothing_factor here as we are manually 
-        # using CrossEntropyLoss, not the one from TrainingArguments.
-        self.criterion = nn.CrossEntropyLoss(
-            weight=self.loss_weights, 
-            ignore_index=-100 # Keep this to ignore all tokens that are not the final label
-        )
+        # Focal Loss gamma parameter
+        self.gamma = 1.0  # typical default, can tune 1-3
+
+        # Flag for compute loss sanity check over JET_FEATURE_TOKEN_ID
+        self.jet_feature_token_id_sanity_checked = False
 
     def compute_loss(
         self,
@@ -378,25 +430,33 @@ class NumericTrainer(Trainer):
             # This ensures numeric_features is already a tensor of correct dtype and device.
             # Plus improves performance by avoiding device transfers in the training loop.
             numeric_embeds = model.numeric_fusion_adapter(numeric_features)
-
             
             # Extend and Fuse the Inputs/Masks
-            inputs_embeds = torch.cat([numeric_embeds, inputs_embeds], dim=1)
-            attention_mask = torch.cat(
-                [torch.ones((attention_mask.shape[0], 1), device=attention_mask.device), attention_mask],
-                dim=1
-            )
-            
-            # Extend and Mask the Labels
-            # Create a -100 tensor (mask) of shape (Batch_size, 1)
-            numeric_labels_mask = torch.full(
-                (labels.shape[0], 1), # (B, 1)
-                -100, 
-                dtype=labels.dtype, 
-                device=labels.device
-            )
-            # Prepend the mask to the original labels
-            labels = torch.cat([numeric_labels_mask, labels], dim=1)
+             # Get the embeddings for the entire input (B, T, hidden_size)
+            inputs_embeds = model.get_input_embeddings()(input_ids)
+
+            # Find positions of <JET_FEATURES> tokens
+            if not self.jet_feature_token_id_sanity_checked:
+                jet_token_id = tokenizer.convert_tokens_to_ids(JET_FEATURE_TOKEN_STR)
+                if jet_token_id != JET_FEATURE_TOKEN_ID:
+                    print(f"⚠️ Warning: Mismatched {JET_FEATURE_TOKEN_STR} token ID! Expected {JET_FEATURE_TOKEN_ID}, got {jet_token_id}")
+                
+                self.jet_feature_token_id_sanity_checked = True
+            else:
+                jet_token_id = JET_FEATURE_TOKEN_ID
+
+            jet_feature_mask = (input_ids == jet_token_id)
+
+            # Sanity check: each row should have exactly 1 match
+            if not torch.all(jet_feature_mask.sum(dim=1) == 1):
+                print(f"⚠️ Warning: each sample should contain exactly one {JET_FEATURE_TOKEN_STR} token")
+
+            # Replace <JET_FEATURES> embeddings with projected numeric features
+            # (works even with batch size > 1)
+            # Clone so we don't have leaf variable warnings
+            inputs_embeds = inputs_embeds.clone()
+            # Replace at masked positions
+            inputs_embeds[jet_feature_mask] = numeric_embeds
 
         # Sanity check
         # All sequence lengths should match now
@@ -421,130 +481,140 @@ class NumericTrainer(Trainer):
         outputs = model(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
-            # labels=labels, # <-- REMOVE THIS LINE
-            output_attentions=False,
-            output_hidden_states=False
+            labels=labels, # We will override PART of the loss computation below
+            **inputs  # any extra keys are forwarded safely
         )
 
-        #! Following is from Gemini with my touch-ups. Likely won't work properly yet.
-        # 1. Extract Logits and Labels
-        logits = outputs.logits
-        # Logits: (batch, seq_len, vocab_size)
-        # Labels: (batch, seq_len)
+        original_loss = outputs.loss  # The CE loss HuggingFace computes internally
 
-        # Identify non-masked labels (where label != -100)
-        non_masked_labels = (labels != -100)
+        if args.debug_loss_function:  # toggle this with self.debug = True/False
+            print("\n" + "=" * 80)
+            print("🧠 DEBUG MODE: Inspecting input_ids, labels, and logits")
+            print("=" * 80)
+
+            # Full predicted token IDs for the batch
+            all_logits = outputs.logits.argmax(dim=-1)  # shape [B, L]
+            decoded_preds = [
+                self.processing_class.decode(seq.tolist(), skip_special_tokens=True)
+                for seq in all_logits
+            ]
+            print("\n🟢 Decoded model predictions:")
+            for i, text in enumerate(decoded_preds):
+                print(f"  [{i}] {text}")
+
+            # Attention masks
+            print("\n🩶 Attention masks (1=real token, 0=padding):")
+            for i, mask in enumerate(attention_mask.tolist()):
+                print(f"  [{i}] {mask}")
+
+            # Decoded input IDs
+            decoded_inputs = [
+                self.processing_class.decode(seq, skip_special_tokens=False)
+                for seq in input_ids
+            ]
+            print("\n🟦 Decoded input IDs:")
+            for i, text in enumerate(decoded_inputs):
+                print(f"  [{i}] {text}")
+
+            # Decoded label IDs (with -100 replaced)
+            labels_for_decode = labels.clone()
+            labels_for_decode[labels_for_decode == -100] = self.processing_class.pad_token_id
+            decoded_labels_full = [
+                self.processing_class.decode(lbl_seq.tolist(), skip_special_tokens=False)
+                for lbl_seq in labels_for_decode
+            ]
+            print("\n🟧 Decoded label IDs (full, -100 → PAD):")
+            for i, text in enumerate(decoded_labels_full):
+                print(f"  [{i}] {text}")
+
+            # === DEBUG: Verify label masking ===
+            print("\n🔍 Token-level label masking inspection:")
+            for i in range(min(2, len(input_ids))):  # print up to 2 examples
+                ids = input_ids[i].tolist()
+                lbls = labels[i].tolist()
+                mask = attention_mask[i].tolist()
+
+                decoded_labels = []
+                for token_id, lbl_id in zip(ids, lbls):
+                    tok = self.processing_class.decode([token_id], skip_special_tokens=False)
+                    if lbl_id == -100:
+                        decoded_labels.append(f"[MASKED:{tok}]")
+                    else:
+                        decoded_labels.append(tok)
+
+                print(f"\n— Example {i} —")
+                print(f"🧾 Input: {self.processing_class.decode(ids, skip_special_tokens=False)}")
+                print(f"🏷️ Labels (MASKED means ignored in loss):")
+                print("".join(decoded_labels))
+                print(f"🩶 Attention mask:\n{mask}")
+                print("-" * 60)
+            print("=" * 80 + "\n")
+
+
+        return (original_loss, outputs) if return_outputs else original_loss
+        # ! Disabled custom loss for now until we know new labels and token is correct
+        # === STEP 2. Find "answer" tokens using attention mask (CORRECTED) ===
+        # The answer token is the *last* token in the padded sequence.
+        # This is more robust than argmax(non_masked) which can pick prompt tokens.
+        answer_indices = attention_mask.sum(dim=1) - 1 # shape [B]
+
+        # Ensure long dtype for gather (CRITICAL)
+        answer_indices = answer_indices.long()  # shape [B]
         
-        # Find the index of the LAST non-masked token.
-        # This is equivalent to finding the index of the 'signal' or 'background' token.
+        vocab_size = outputs.logits.size(-1)
+
+        # Expand for vocab dimension to gather logits: [B, 1, V]
+        index_for_gather = answer_indices.view(-1, 1, 1).expand(-1, 1, vocab_size)
+        answer_logits = torch.gather(outputs.logits, 1, index_for_gather).squeeze(1)  # [B, V]
+
+        # Gather correct labels for the answer token: [B, 1] -> [B]
+        answer_labels = torch.gather(labels, 1, answer_indices.view(-1, 1)).squeeze(1)  # [B]
+
+
+        # === CRITICAL FIX: LOGITS MASKING TO CONSTRAIN OUTPUT ===
+        # This prevents the model from choosing noisy, high-frequency tokens like '\n', 'j', '7', etc., 
+        # at the final classification step.
+        all_class_ids = self.signal_ids + self.background_ids
         
-        # Find the index of the last TRUE value in the non_masked_labels tensor (along dim 1: sequence length)
-        # torch.argmax gives the index of the first TRUE, so we reverse the tensor first.
-        # labels.shape[1] - 1 gives the max index.
-        # The index of the first TRUE in the reversed tensor is the distance from the end of the sequence.
-        # Subtracting this distance from the max index gives the true index.
-        reversed_mask = non_masked_labels.flip(dims=[1])
+        mask = torch.zeros(vocab_size, dtype=torch.bool, device=answer_logits.device)
+        mask[all_class_ids] = True 
         
-        # Find the first TRUE in the reversed mask (this is the distance from the end)
-        distance_from_end = torch.argmax(reversed_mask.long(), dim=1)
-        
-        # Calculate the actual index (sequence length - 1 - distance_from_end)
-        seq_len = labels.shape[1]
-        classification_index = seq_len - 1 - distance_from_end
-        
-        # 2. Extract Logits and Labels using the determined index
-        # We use gather to select the logits slice corresponding to the classification index for each batch item.
-        # classification_index is (B), we need to expand it for gather.
-        
-        # Logits extraction: (B, V)
-        # We need to reshape classification_index from (B) to (B, 1, 1) and expand it to match the vocab_size
-        index_for_gather = classification_index.view(-1, 1, 1).expand(-1, 1, logits.shape[-1])
-        last_logits = torch.gather(logits, 1, index_for_gather).squeeze(1) # (B, V)
-        
-        # Labels extraction: (B)
-        last_labels = torch.gather(labels, 1, classification_index.view(-1, 1)).squeeze(1) # (B,)
-
-        # print(torch.unique(last_labels))
-        
-        # 2. SANITY CHECK (The requested check!)
-        # Check that the extracted labels are not masked
-        # The true labels are token IDs (typically > 100). Masked labels are -100.
-        is_masked = last_labels == -100
-        if is_masked.any():
-             # Find the batch indices where this is true for debugging
-             bad_indices = torch.where(is_masked)[0]
-             # If the token is masked, it means the answer was truncated. This is a data bug.
-             raise RuntimeError(
-                f"FATAL LOSS ERROR: Classification label at index {classification_index} is masked (-100) "
-                f"for batch indices: {bad_indices}. "
-                "This indicates the 'signal'/'background' token was truncated during tokenization. "
-                "Increase max_length or fix the tokenization logic."
-            )
-
-        # 3. Ignore -100 labels (although -100 should only be present on the numeric token, 
-        # this ensures robustness)
-        # mask = last_labels != -100
-        
-        # 4. Compute Weighted Loss
-        # criterion: nn.CrossEntropyLoss(weight=self.loss_weights, ignore_index=-100)
-        # We compute the loss on the masked tensors.
-        loss = self.criterion(
-            last_logits, 
-            last_labels
-        )
-
-        # DEBUG: run only occasionally
-        if getattr(self, "state", None) and (self.state.global_step % 16 == 0):
-            with torch.no_grad():
-                # shape checks
-                print("DBG step", getattr(self.state, "global_step", None))
-                print("inputs_embeds.dtype", inputs_embeds.dtype, "logits.dtype", logits.dtype)
-                print("logits.shape", logits.shape, "labels.shape", labels.shape)
-
-                # classification_index for each batch element (you already computed it)
-                print("classification_index:", classification_index.cpu().tolist())
-
-                # last_labels and their decoded tokens
-                print("last_labels tensor:", last_labels)
-                try:
-                    decoded_true = [self.tokenizer.decode([int(x)]) for x in last_labels.cpu().tolist()]
-                except Exception:
-                    decoded_true = ["<decode-error>"]
-                print("decoded_true:", decoded_true)
-
-                # predictions
-                pred_ids = last_logits.argmax(dim=-1)    # (B,)
-                pred_top1 = pred_ids
-                print("pred_ids:", pred_ids)
-                try:
-                    decoded_pred = [self.tokenizer.decode([int(x)]) for x in pred_ids.cpu().tolist()]
-                except Exception:
-                    decoded_pred = ["<decode-error>"]
-                print("decoded_pred:", decoded_pred)
-
-                # softmax prob of true class
-                probs = torch.softmax(last_logits, dim=-1)
-                true_probs = probs.gather(1, last_labels.view(-1,1)).squeeze(1)
-                topk = torch.topk(probs, k=5, dim=-1)
-                print("true_probs:", true_probs.cpu().tolist())
-                print("top5_ids:", topk.indices.cpu().tolist())
-                print("top5_probs:", topk.values.cpu().tolist())
-
-                # raw logits stats
-                print("last_logits mean/std/min/max:", last_logits.mean().item(), last_logits.std().item(),
-                    last_logits.min().item(), last_logits.max().item())
-
-                # loss computed manually (same as your criterion)
-                manual_loss = self.criterion(last_logits, last_labels)
-                print("criterion loss:", manual_loss.item())
+        # Drive logits for all unallowed tokens to negative infinity
+        answer_logits[:, ~mask] = -1e9 
+        # =======================================================
 
 
-        return (loss, outputs) if return_outputs else loss
+        # === STEP 3. Compute Focal Loss just on answer tokens (UNCHANGED) ===
+        log_probs = F.log_softmax(answer_logits, dim=-1)
+        P_t_log = torch.gather(log_probs, -1, answer_labels.unsqueeze(-1)).squeeze(-1)
+        P_t = torch.exp(P_t_log)
+        focal_term = ((1.0 - P_t).clamp(min=1e-6)) ** self.gamma
 
-        # loss = outputs.loss
+        # Class weights: emphasize signal (positive) samples
+        weights = torch.gather(self.loss_weights, dim=0, index=answer_labels)
+
+        focal_loss = -weights * focal_term * P_t_log
+        focal_loss = focal_loss.mean()
+
+        # === STEP 4. Blend with original loss (UNCHANGED) ===
+        final_loss = original_loss + 0.2 * focal_loss
+
+        # === STEP 5. DEBUGGING — Verify we're capturing correct answer positions ===
+        with torch.no_grad():
+            decoded_labels = [self.processing_class.decode([lbl.item()]) for lbl in answer_labels]
+            pred_ids = torch.argmax(answer_logits, dim=-1)
+            decoded_preds = [self.processing_class.decode([pid.item()]) for pid in pred_ids]
+
+            print("=== [DEBUG: Answer Token Check] ===")
+            print("Answer token indices:", answer_indices.tolist())
+            print("Answer labels (token IDs):", answer_labels.tolist())
+            print("Answer labels (decoded):", decoded_labels)
+            print("Predicted IDs:", pred_ids.tolist())
+            print("Predicted tokens (decoded):", decoded_preds)
+            print("=====================================")
 
 
-        # return (loss, outputs) if return_outputs else loss
+        return (final_loss, outputs) if return_outputs else final_loss
     
     # Override _save to manually save the custom adapter weights
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
@@ -611,12 +681,12 @@ class GradLoggerCallback(TrainerCallback):
                     f"adapter_{name.replace('.', '_')}_mean": param.data.mean().item(),
                     f"adapter_{name.replace('.', '_')}_std": param.data.std().item()
                 })
-                if param.grad is not None:
-                    log_dict.update({
-                        f"adapter_{name.replace('.', '_')}_grad_mean": param.grad.mean().item(),
-                        f"adapter_{name.replace('.', '_')}_grad_std": param.grad.std().item()
-                    })
-                break
+
+            if param.grad is not None:
+                log_dict.update({
+                    f"adapter_{name.replace('.', '_')}_grad_mean": param.grad.mean().item(),
+                    f"adapter_{name.replace('.', '_')}_grad_std": param.grad.std().item()
+                })
 
         grads = [p.grad.norm(2) for p in adapter.parameters() if p.grad is not None]
         if len(grads) > 0:
@@ -625,7 +695,7 @@ class GradLoggerCallback(TrainerCallback):
         else:
             total_norm = 0.0
             log_dict.update({"adapter_grad_norm": total_norm})
-    
+
         if log_dict:
             control.should_log = True
             self.trainer.log(log_dict)

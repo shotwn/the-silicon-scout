@@ -39,7 +39,7 @@ class NumericFusionAdapter(nn.Module):
             nn.LayerNorm(hidden_size, dtype=dtype, device=device)
         )
         # Scale to match token embedding scale
-        self.scale = nn.Parameter(torch.tensor(0.1, dtype=dtype, device=device))  # match token embedding scale
+        self.scale = nn.Parameter(torch.tensor(0.05, dtype=dtype, device=device))  # match token embedding scale
 
     def forward(self, numeric_features):
         # Project numeric features to same dim as embeddings

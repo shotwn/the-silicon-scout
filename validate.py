@@ -36,6 +36,16 @@ print("Using LoRA checkpoint:", lora_checkpoint)
 tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 tokenizer.pad_token = tokenizer.eos_token  # ensure padding
 
+"""
+Special token for numeric features
+"""
+if args.use_numeric:
+    JET_FEATURE_TOKEN_STR = "<JET_FEATURES>"
+    tokenizer.add_special_tokens({"additional_special_tokens": [JET_FEATURE_TOKEN_STR]})
+    JET_FEATURE_TOKEN_ID = tokenizer.convert_tokens_to_ids(JET_FEATURE_TOKEN_STR)
+
+    print(f"Numeric feature token: {JET_FEATURE_TOKEN_STR} with ID {JET_FEATURE_TOKEN_ID}.\nMake sure this is consistent with training !")
+
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_use_double_quant=True,
@@ -49,6 +59,8 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto",
     quantization_config=bnb_config,  # replaces load_in_4bit argument
 )
+# Resize token embeddings in case new tokens were added to tokenizer
+model.resize_token_embeddings(len(tokenizer))
 
 # Initialize and Load Numeric Fusion Adapter
 numeric_dim = 16 
@@ -97,6 +109,10 @@ with open(val_file, "r") as f:
 
 def make_prompt(example):
     """Create prompt from example."""
+    numeric_token_placeholder = ""
+    if args.use_numeric:
+        numeric_token_placeholder = JET_FEATURE_TOKEN_STR
+
     jets = example["jets"]
     s = "[INST] Classify this event as 'signal' or 'background'.\n"
     s += "jets:\n"
@@ -105,7 +121,7 @@ def make_prompt(example):
         for dR_jet, dR_value in j["dR"].items():
             dR_value = dR_value if dR_value is not None else 0.0
             s += f"    dR_{dR_jet}={dR_value:.2f}\n"
-    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}[/INST]\n"
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}{numeric_token_placeholder}[/INST] "
 
     return s
 
@@ -163,26 +179,29 @@ for example in tqdm(val_examples):
         numeric_features = extract_numeric_features(example)
         # Get numeric embeddings
         numeric_embeds = model.numeric_fusion_adapter(numeric_features)
-        # Get text embeddings
-        text_embeds = model.get_input_embeddings()(input_ids)
-        # Combine embeddings and adjust attention mask
-        inputs_embeds = torch.cat([numeric_embeds, text_embeds], dim=1)
-        # Adjust attention mask
-        attention_mask_adjusted = torch.cat(
-            [torch.ones((attention_mask.shape[0], 1), device=device), attention_mask],
-            dim=1
-        )
+        # Get input embeddings
+        inputs_embeds = model.get_input_embeddings()(input_ids)
+
+        # Get positions of <JET_FEATURES> tokens
+        jet_feature_mask = (input_ids == JET_FEATURE_TOKEN_ID)
+
+        # Safety check — each sample should contain exactly one injection point
+        if not torch.all(jet_feature_mask.sum(dim=1) == 1):
+            print(f"⚠️ Warning: each example should contain exactly one {JET_FEATURE_TOKEN_STR} token")
+
+        # Replace <JET_FEATURES> embeddings with projected numeric features
+        # (works even with batch size > 1)
+        # Clone so we don't have leaf variable warnings
+        inputs_embeds = inputs_embeds.clone()
+        
+        # Replace at masked positions
+        inputs_embeds[jet_feature_mask] = numeric_embeds
 
         # Prepare generation kwargs
-        gen_kwargs = dict(inputs_embeds=inputs_embeds, attention_mask=attention_mask_adjusted)
+        gen_kwargs = dict(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
 
-        # The output decoding index needs to be adjusted in the next block!
-        # start_decode_index = input_ids.shape[1] + 1 # +1 for the numeric token
-        start_decode_index = 0 # ^ This one was wrong, since we are using input_embeds we just get the answer part. No prompt to offset. 
-                               # Also first token is not there in the text output.
-
-        # print("Numeric embed mean/std:", numeric_embeds.mean().item(), numeric_embeds.std().item())
-        # print("Text embed mean/std:", text_embeds.mean().item(), text_embeds.std().item())
+        # No offset needed for start_decode_index — it starts right after the prompt
+        start_decode_index = 0
     else:
         gen_kwargs = dict(input_ids=input_ids, attention_mask=attention_mask)
         start_decode_index = input_ids.shape[1]
