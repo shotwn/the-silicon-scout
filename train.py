@@ -9,6 +9,8 @@ from argparse import ArgumentParser
 from numeric_fusion_adapter import NumericFusionAdapter, NumericFeatureCollator
 from typing import Any, Optional, Union
 import os
+from prompt_templates import PROMPT_TEMPLATES, ASKING_FOR_CLARIFICATION_TEMPLATES
+import random
 
 # Check environment
 arg_parser = ArgumentParser()
@@ -109,14 +111,15 @@ ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl
 
 def format_example(example):
     jets = example["jets"]
-    s = "[INST] Classify this event as 'signal' or 'background'.\n"
+    #s = "Classify this event as 'signal' or 'background'.\n"
+    s = random.choice(PROMPT_TEMPLATES)
     s += "jets:\n"
     for i, j in enumerate(jets):
         s += f"  jet{i+1}: P_T={j['P_T']:.10f} eta={j['eta']:.10f} phi={j['phi']:.10f} E={j['E']:.10f} m={j['m']:.10f} n_particles={j['n_particles']} P_T_lead={j['P_T_lead']:.10f}\n"
         for dR_jet, dR_value in j["dR"].items():
-            dR_value = dR_value if dR_value is not None else 0.0
-            s += f"    dR_{dR_jet}={dR_value:.2f}\n"
-    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}{JET_FEATURE_TOKEN_STR}[/INST] "
+            if dR_value:
+                s += f"    dR_{dR_jet}={dR_value:.2f}\n"
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}"
 
     # HF Trainer expects 'labels' key for supervised fine-tuning
     return {
@@ -137,7 +140,89 @@ def tokenize_example_refined(example, max_length=512):
     # We add a space to ensure tokenization of the answer doesn't merge with the prompt's last token
     prompt = example["input_text"]
     answer = example["labels"] # 'signal' or 'background'
-    full_text = f"{prompt}{answer} "
+
+    """
+    Construct a simulated dialog
+    """
+    # Random tool_call_id, alphanumeric 9-digit
+    # Used to simulate tool call results in the dialog
+    # Adding tool calls themselves could be necessary in the future, but keeping token count low for now
+    random_tool_call_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=9))
+
+    dialog_without_label = [
+        {"role": "user", "content": prompt},
+        {"role": "tool_results", "tool_call_id": random_tool_call_id, "content": '{"result": "' + JET_FEATURE_TOKEN_STR + '"}'}
+    ]
+
+    dialog_with_label = dialog_without_label + [{"role": "assistant", "content": f" {answer} "}]
+
+    # Randomly add more stuff to label so the model doesn't just memorize " signal" or " background"
+    has_clarification = False
+    if random.random() < 0.001: # 1 in 1000 chance
+        dialog_with_label.append({"role": "user", "content": random.choice(ASKING_FOR_CLARIFICATION_TEMPLATES)})
+        
+        # Lets use the model itself to generate a short explanation
+        # For now this won't be correct, model is untrained so it will just ramble
+        # In the future this can be done with a separate trained model or a retrieval system
+        # 
+        # Here we just want to increase variability in the answers 
+        # so the model knows that it can generate more than just " signal" or " background"
+        clarification_prompt = tokenizer.apply_chat_template(
+            dialog_with_label,
+            tokenize=False,
+            add_generation_prompt=True # adds the necessary tokens to indicate generation start
+        )
+
+        #! Numeric token is left AS IS for now, because injection is in the collator
+        #! We might need to copy injection to here as well, like in validate.py
+
+        clarification_input = tokenizer(
+            clarification_prompt,
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt"
+        )
+
+        clarification_input_ids = clarification_input["input_ids"].to(model.device)
+        clarification_attention_mask = clarification_input["attention_mask"].to(model.device)
+
+        with torch.no_grad():
+            clarification_output_ids = model.generate(
+                input_ids=clarification_input_ids,
+                attention_mask=clarification_attention_mask,
+                max_new_tokens=120,
+                pad_token_id=tokenizer.eos_token_id,
+
+            )
+
+        # Decode the generated output
+        # We only want the newly generated tokens after the input prompt
+        clarification_output = tokenizer.decode(clarification_output_ids[0][clarification_input_ids.shape[1]:], skip_special_tokens=True)
+        
+        print("\n--- Generated Clarification ---")
+        print("\nClarification prompt:", clarification_prompt)
+        print("\nClarification output:", clarification_output, "\n")
+        print("--- End Generated Clarification ---\n")
+
+        dialog_with_label.append({"role": "assistant", "content": clarification_output})
+        has_clarification = True
+
+    """
+    Prepare full text and label
+    """
+    # Full: Prompt + Answer (label)
+    full_text = tokenizer.apply_chat_template(
+        dialog_with_label,
+        tokenize=False,
+        add_generation_prompt=True # adds the necessary tokens to indicate generation start
+    )
+
+    # Prompt only (without label)
+    prompt_only_text = tokenizer.apply_chat_template(
+        dialog_without_label,
+        tokenize=False,
+        add_generation_prompt=True # adds the necessary tokens to indicate generation start
+    )
 
     # 2. Tokenize the Full Sequence (Prompt + Answer)
     # This generates the input_ids, attention_mask, etc., and handles padding/truncation.
@@ -151,10 +236,8 @@ def tokenize_example_refined(example, max_length=512):
     )
 
     # 3. Tokenize the Prompt (Input Text) to find its length
-    # Use 'add_special_tokens=False' to avoid counting special tokens in the prompt length
-    # if the prompt already contains them (like [/INST]).
     prompt_tokens = tokenizer(
-        prompt,
+        prompt_only_text,
         truncation=True,
         max_length=max_length,
         add_special_tokens=False
@@ -177,19 +260,31 @@ def tokenize_example_refined(example, max_length=512):
     # Mask out the prompt tokens with -100
     # The model should not learn from the prompt itself.
     # Mask out prompt tokens (the first part of the non-padded region)
-    start_idx = where_left_padding_ends
+    start_idx = where_left_padding_ends + 1
     end_idx = min(start_idx + prompt_len, max_length)
     labels[start_idx:end_idx] = [-100] * (end_idx - start_idx)
 
     # Assign the final labels array
     full_encoding["labels"] = labels
 
-    # Print labels (masked) for debugging
-    """
-    labels_without_mask = [lbl if lbl != -100 else tokenizer.pad_token_id for lbl in labels]
-    decoded_labels = tokenizer.decode(labels_without_mask, skip_special_tokens=False)
-    print("Decoded labels with masking:", decoded_labels)
-    """
+    # Debugging: Occasionally print the decoded sequences
+    if random.random() < 0.01 or has_clarification:
+        print("\n--- Debugging Tokenization ---")
+        # Print full input for debugging
+        decoded_input = tokenizer.decode(full_encoding["input_ids"], skip_special_tokens=False)
+        print("\nDecoded full input:", decoded_input)
+
+        # Print decoded prompt for debugging
+        decoded_prompt = tokenizer.decode(prompt_tokens["input_ids"], skip_special_tokens=False)
+        print("\nDecoded prompt:", decoded_prompt)
+
+        # Print labels (masked) for debugging
+        labels_without_mask = [lbl if lbl != -100 else tokenizer.bos_token_id for lbl in labels]
+        decoded_labels = tokenizer.decode(labels_without_mask, skip_special_tokens=False)
+        print("\nDecoded labels with masking:", decoded_labels)
+
+        print("\n--- End Debugging ---\n")
+        
 
     # ===== Build numeric vector =====
     # Use fixed order to extract numeric features
@@ -251,7 +346,7 @@ tokenized_ds.set_format(
 
 # Setup training
 # * Set run_name properly for logging
-run_name = "token_placeholder_NFA_001"
+run_name = "token_placeholder_NFA_002"
 training_args = TrainingArguments(
     run_name=run_name,
     output_dir=args.output_dir,
@@ -493,13 +588,13 @@ class NumericTrainer(Trainer):
             print("=" * 80)
 
             # Full predicted token IDs for the batch
-            all_logits = outputs.logits.argmax(dim=-1)  # shape [B, L]
-            decoded_preds = [
-                self.processing_class.decode(seq.tolist(), skip_special_tokens=True)
-                for seq in all_logits
-            ]
+            pred_logits = outputs.logits.argmax(dim=-1)  # shape [B, L]
+            mask = (labels != -100)
+            masked_preds = torch.where(mask, pred_logits, torch.tensor(tokenizer.pad_token_id, device=pred_logits.device))
+            decoded = tokenizer.batch_decode(masked_preds, skip_special_tokens=True)
+
             print("\n🟢 Decoded model predictions:")
-            for i, text in enumerate(decoded_preds):
+            for i, text in enumerate(decoded):
                 print(f"  [{i}] {text}")
 
             # Attention masks

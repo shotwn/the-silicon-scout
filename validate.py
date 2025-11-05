@@ -8,6 +8,7 @@ import os
 import glob
 from argparse import ArgumentParser
 from numeric_fusion_adapter import NumericFusionAdapter
+import random
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -21,6 +22,7 @@ arg_parser.add_argument("--validation_dataset", type=str, default="output/val_on
 arg_parser.add_argument("--sample_size", type=int, default=1000, required=False, help="Number of samples to use from validation dataset for quick testing. Default is 1000. Use 0 to use all dataset.")
 arg_parser.add_argument("--show_generated", action="store_true", help="If set, will show the full generated text from the model.")
 arg_parser.add_argument("--use_numeric", action="store_true", help="If set, will use numeric features in the model.")
+arg_parser.add_argument("--ask_for_clarification", action="store_true", help="If set, will ask the model for clarification after initial prediction.")
 args = arg_parser.parse_args()
 
 # Get the latest folder in the checkpoint directory
@@ -107,30 +109,43 @@ with open(val_file, "r") as f:
             break
 
 
-def make_prompt(example):
+def make_prompt_text_only(example):
     """Create prompt from example."""
-    numeric_token_placeholder = ""
-    if args.use_numeric:
-        numeric_token_placeholder = JET_FEATURE_TOKEN_STR
-
     jets = example["jets"]
-    s = "[INST] Classify this event as 'signal' or 'background'.\n"
+    s = "Classify this event as 'signal' or 'background'.\n"
     s += "jets:\n"
     for i, j in enumerate(jets):
         s += f"  jet{i+1}: P_T={j['P_T']:.10f} eta={j['eta']:.10f} phi={j['phi']:.10f} E={j['E']:.10f} m={j['m']:.10f} n_particles={j['n_particles']} P_T_lead={j['P_T_lead']:.10f}\n"
         for dR_jet, dR_value in j["dR"].items():
             dR_value = dR_value if dR_value is not None else 0.0
             s += f"    dR_{dR_jet}={dR_value:.2f}\n"
-    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}{numeric_token_placeholder}[/INST] "
+    s += f"n_particles: {example['n_particles']} M_jj= {example['M_jj']}"
 
     return s
+
+def make_dialog(prompt_text):
+    random_tool_call_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=9))
+
+    dialog = [
+        {
+            "role": "user",
+            "content": prompt_text,
+        }
+    ]
+
+    if args.use_numeric:
+        dialog.append({
+            "role": "tool_results", 
+            "tool_call_id": random_tool_call_id, 
+            "content": '{"result": "' + JET_FEATURE_TOKEN_STR + '"}'
+        })
+
+    return dialog
 
 def extract_numeric_features(example):
     """Extract numeric features from example."""
     jets = example["jets"]
-    numeric_vector = [0.0] * 16
     numeric_vector = [ 0.0 ] * 16  # Initialize with zeros
-    jets = example["jets"]
     # Jet 1
     if len(jets) > 0:
         numeric_vector[0] = float(jets[0]["P_T"]) / 1000.0  # Normalize P_T
@@ -155,13 +170,22 @@ def extract_numeric_features(example):
     numeric_vector[14] = float(example["n_particles"]) / 200.0  # Normalize total n_particles
     numeric_vector[15] = float(example["M_jj"]) / 1000.0  # Normalize M_jj
 
-    return torch.tensor(numeric_vector, dtype=torch.float16).unsqueeze(0).to(device)
+    return torch.tensor(numeric_vector, dtype=torch.float32).unsqueeze(0).to(device)
 
 preds = []
 labels = []
 target_names = ["background", "signal"]
 for example in tqdm(val_examples):
-    prompt = make_prompt(example)
+    prompt_text = make_prompt_text_only(example)
+    dialog = make_dialog(prompt_text)
+
+    # Build prompt with chat template
+    prompt = tokenizer.apply_chat_template(
+        dialog,
+        tokenize=False,
+        add_generation_prompt=True # adds the necessary tokens to indicate generation start
+    )
+
     # Encode with attention_mask and padding
     inputs = tokenizer(
         prompt,
@@ -210,12 +234,12 @@ for example in tqdm(val_examples):
         output_ids = model.generate(
             **gen_kwargs,
             #top_p=0.9,                     # nucleus sampling ?
-            max_new_tokens=1,              # allow at least 2 new tokens
-            temperature=0.01,               # almost deterministic
+            max_new_tokens=4,              # allow at least 2 new tokens
+            #temperature=0.01,               # almost deterministic
             #do_sample=True,               # disable greedy decoding
             do_sample=False,               # enable greedy decoding -> reduce randomness
             eos_token_id=tokenizer.eos_token_id,  # 🚫 prevent early stopping
-            suppress_tokens=[tokenizer.eos_token_id],  # 🚫 block EOS generation
+            #suppress_tokens=[tokenizer.eos_token_id],  # 🚫 block EOS generation
             pad_token_id=tokenizer.eos_token_id # suppress warning that appears when this is set automatically
         )
 
@@ -258,6 +282,64 @@ for example in tqdm(val_examples):
     
     preds.append(pred)
     labels.append(example["type"].lower())
+
+    if not args.ask_for_clarification:
+        continue
+
+    # Ask for clarification
+    # It WILL have the JET_FEATURES token if numeric features are used
+    # !But injection of NFA on the token WILL NOT be used during clarification, at least for now
+    clarification_dialog = dialog.copy()
+
+    # Add assistant's previous answer
+    clarification_dialog.append({
+        "role": "assistant",
+        "content": f"{pred_text}",
+    })
+
+    # Add user request for clarification
+    clarification_dialog.append({
+        "role": "user",
+        "content": "Clarify the previous classification. Explain your decision in a few words.",
+    })
+
+    classification_prompt = tokenizer.apply_chat_template(
+        clarification_dialog,
+        tokenize=False,
+        add_generation_prompt=True # adds the necessary tokens to indicate generation start
+    )
+
+    if args.show_generated:
+        print("Clarification prompt:")
+        print(classification_prompt)
+
+    inputs = tokenizer(
+        classification_prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512
+    )
+
+    with torch.no_grad():
+        output_ids = model.generate(
+            input_ids=inputs["input_ids"].to(device),
+            attention_mask=inputs["attention_mask"].to(device),
+            max_new_tokens=256,
+            temperature=0.8,
+            top_p=0.8,
+            do_sample=True,
+        )
+
+    # Decode output tokens after prompt
+    pred_text = tokenizer.decode(
+        output_ids[0],  # take only newly generated tokens
+        skip_special_tokens=False,
+    )
+
+    # Just print the clarification output
+    if args.show_generated:
+        print("\nClarification output:")
+        print(pred_text)
 
 # Results
 # Number of background, signal or unknown predictions with correct labels
