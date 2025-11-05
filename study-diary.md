@@ -1808,6 +1808,99 @@ I updated the training and validation scripts accordingly and restarted the trai
 
 I disabled the custom focal loss for now so I can verify the new NFA injection method is working properly first. Once verified I will try to reintroduce focal loss or other custom loss functions. What I have in mind at the moment is to calculate using default loss function up to a point, then add custom loss only on the answer token as a sum. This way we can have a fast start, but then push the model to learn better on the answer token. Of course changing the loss function like this might also cause instability so I will have to monitor it closely.
 
+## 2025-11-04
+### After Restarting Training with New NFA Injection Method
+#### Checkpoint-2400
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 514 out of 524
+Number of correct signal predictions: 324 out of 476
+Validation Accuracy: 0.838
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.77      0.98      0.86       524
+      signal       0.97      0.68      0.80       476
+
+    accuracy                           0.84      1000
+   macro avg       0.87      0.83      0.83      1000
+weighted avg       0.87      0.84      0.83      1000
+
+SIC (Significance Improvement Characteristic): 4.9272
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7156 out of 7250
+Number of correct signal predictions: 547 out of 750
+Validation Accuracy: 0.962875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.85      0.73      0.79       750
+
+    accuracy                           0.96      8000
+   macro avg       0.91      0.86      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+
+SIC (Significance Improvement Characteristic): 6.4052
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7761 out of 7989
+Number of correct signal predictions: 0 out of 11
+Validation Accuracy: 0.970125
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.97      0.98      7989
+      signal       0.00      0.00      0.00        11
+
+    accuracy                           0.97      8000
+   macro avg       0.50      0.49      0.49      8000
+weighted avg       1.00      0.97      0.98      8000
+
+SIC (Significance Improvement Characteristic): 0.0000
+```
+
+As expected, model is performing best at its imbalanced training dataset. But still losing all true signal predictions on black-box dataset. Checkpoint-2200 is somewhat early considering the NFA is still receiving gradients and loss is *slowly* decreasing. But I think this is a good enough comparison point to previous attempts.
+
+But something interesting happened in validation. When I validate with single token output, everything seems fine. But when I validate with multi-token output it is obvious that LLM forgot all its language modeling capabilities. It just outputs "background" or "signal" repeatedly without any context. I thought this might be related to the fact that in label construction I masked everything except the answer token. So the model is forgetting how to generate text properly.
+
+Not sure how to fix this yet. For one thing I re-checked the Mistral 7b Instruct's chat template (ninja file).[^3] Which shows that BOS and EOS tokens are needed for proper text generation as well as a space after `[/INST]` block. So I will try to add those to the prompt and label construction yet keep the labels masked and see what happens.
+
+## 2025-11-05
+### After Adding BOS and EOS Tokens to Prompt & Label Construction
+Sadly no improvement. Model is still losing its language modeling capabilities when validating with multi-token output. It just outputs "background" or "signal" repeatedly without any context.
+
+### New Prompt / Label Construction Logic
+To prevent the model from collapsing to always output "background" or "signal", I decided to add some text after classification answer in some of the prompt+label pairs. This way model will know that it should continue generating text after the answer token instead of stopping there.
+
+Because complexity of the prompt is increasing, I decided to use the native chat template of Mistral-7B-Instruct model.[^3] This way I can be sure the model is receiving the prompt in the expected format. Also I started to simulate a tool call response and added the `<JET_FEATURES>` token as its response. It is important to note that I didn't simulate the full tool call cycle, which would have the `[AVAILABLE_TOOLS]` section, tool call from the model (assistant) and then tool response. Instead I just added the tool response part to the assistant message. This way I can keep the prompt shorter and save some GPU time during training. But if this does not work, I might have to implement the full tool call cycle.
+
+For the text that will come after classification answer, I decided to use the model itself during dataset creation. In some of the samples (0.0005 probability right now, since it is just an experiment) 
+
+- I take the context which includes the user message, tool response and assistant message with classification answer.
+- I prompt the model to continue the text after classification answer. Using a pool of classification follow-up prompts to increase diversity.
+- I generate the continuation text. 
+
+The generated continuation is not necessarily be scientifically correct. It is just a plausible continuation from the model's previous information pool. It might have clues, since model knows the correct answer and just makes up a plausible explanation. But shouldn't be relied on for correctness. But I thought it is better than random text or fixed text and since it contains the model's own understanding of the context, it might help to keep the language modeling capabilities intact.
+
+In the future this clarification follow-up text can be generated with a more methodical approach and actually be scientifically correct. But for now this is just an experiment to see if we can keep the model from collapsing.
+
+I ran the training until checkpoint-100. Previously collapse started to happen pretty early, with continuation text rapidly starting to turn to gibberish before collapsing to classification only. But with this new method, model was able to keep generating plausible text for longer. So I think this is a step in the right direction.
+
+Also, I found a weird bug on prompt generation where the $\Delta_R$ information was being added 3 times even when this information did not exist in the dataset. I also fixed this bug by a check but I actually couldn't find why it was happening, likely it is a immutability or scope leak issue on the for loop. Fixing this bug actually reduced the prompt length and allowed me to add things like tool response and continuation text without exceeding the token limit, which is currently 512 tokens.
+
+Finally, I modified the validation script to optionally ask the model for explanation after classification. This way I can see if the model is able to generate plausible explanations along with correct classifications. Also I used native chat template for validation as well to be consistent with training prompt structure.
+
+This will be tonight's training run. I will validate at checkpoint-2200 again if all looks good.
+
+
+
+
 
 
 
