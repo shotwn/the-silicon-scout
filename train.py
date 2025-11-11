@@ -105,10 +105,6 @@ else:
 """
 Data Loading and Preprocessing
 """
-# Load dataset
-#ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
-ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
-
 def format_example(example):
     jets = example["jets"]
     #s = "Classify this event as 'signal' or 'background'.\n"
@@ -130,8 +126,6 @@ def format_example(example):
         "n_particles": example["n_particles"], 
         "M_jj": example["M_jj"]
     }
-
-ds = ds.map(format_example, load_from_cache_file=not args.reset_dataset_cache)
 
 def tokenize_example_refined(example, max_length=512):
     # 1. Construct the full sequence: Prompt + Answer
@@ -158,7 +152,7 @@ def tokenize_example_refined(example, max_length=512):
 
     # Randomly add more stuff to label so the model doesn't just memorize " signal" or " background"
     has_clarification = False
-    if random.random() < 0.001: # 1 in 1000 chance
+    if random.random() < 0.005: # 5 in 1000 chance
         dialog_with_label.append({"role": "user", "content": random.choice(ASKING_FOR_CLARIFICATION_TEMPLATES)})
         
         # Lets use the model itself to generate a short explanation
@@ -193,6 +187,11 @@ def tokenize_example_refined(example, max_length=512):
                 max_new_tokens=120,
                 pad_token_id=tokenizer.eos_token_id,
 
+                # Following settings help increase variability
+                do_sample=True, # enable sampling
+                temperature=0.9, # moderate temperature for diversity, not too high
+                top_p=0.9, # nucleus sampling, keep top 90% prob mass
+                repetition_penalty=1.1 # slight penalty to discourage repetition, helps with longer outputs
             )
 
         # Decode the generated output
@@ -326,27 +325,73 @@ def tokenize_example_refined(example, max_length=512):
 
     return full_encoding
 
-# Tokenize the dataset
-# load_from_cache_file is set based on whether we are overriding checkpoints or not
-# If we are overriding, we want to reprocess the data
-tokenized_ds = ds.map(
-    tokenize_example_refined, 
-    batched=False, 
-    load_from_cache_file=not args.reset_dataset_cache, 
-    remove_columns=ds["train"].column_names,
-)
+def create_dataset():
+    # Load dataset
+    #ds = load_dataset("json", data_files={"train":"output/train_one_to_one.jsonl", "validation":"output/val_one_to_one.jsonl"})
+    ds = load_dataset("json", data_files={"train":"output/train_original_ratio.jsonl", "validation":"output/val_original_ratio.jsonl"})
 
-# Collator is not receiving numeric features if we don't set the format here
-# This might be unnecesary now, culprit was "remove_unused_columns" in Trainer args
-tokenized_ds.set_format(
-    type="torch", 
-    columns=["input_ids", "attention_mask", "labels", "numeric_features"],
-    output_all_columns=False
-)
+    # Prepare initial prompt texts
+    ds = ds.map(format_example, load_from_cache_file=not args.reset_dataset_cache)
 
-# Setup training
+    # Tokenize the dataset
+    # load_from_cache_file is set based on whether we are overriding checkpoints or not
+    # If we are overriding, we want to reprocess the data
+    tokenized_ds = ds.map(
+        tokenize_example_refined, 
+        batched=False, 
+        load_from_cache_file=not args.reset_dataset_cache, 
+        remove_columns=ds["train"].column_names,
+    )
+
+    # Collator is not receiving numeric features if we don't set the format here
+    # This might be unnecesary now, culprit was "remove_unused_columns" in Trainer args
+    tokenized_ds.set_format(
+        type="torch", 
+        columns=["input_ids", "attention_mask", "labels", "numeric_features"],
+        output_all_columns=False
+    )
+
+    # Save dataset to disk for faster loading next time
+    # Normally cache should handle this, but because latest dataset is not deterministic (due to random clarifications),
+    # automatic caching is failing and running tokenize step every time.
+    tokenized_ds.save_to_disk("processed_lhco_dataset")
+
+    return tokenized_ds
+
+def load_dataset_from_disk():
+    # Load preprocessed dataset from disk
+    try :
+        tokenized_ds = load_dataset("processed_lhco_dataset")
+    except Exception as e:
+        print(f"Error loading dataset from disk: {e}")
+        return None
+
+    # Ensure correct format
+    tokenized_ds.set_format(
+        type="torch", 
+        columns=["input_ids", "attention_mask", "labels", "numeric_features"],
+        output_all_columns=False
+    )
+
+    return tokenized_ds
+
+# Load or create dataset
+if args.reset_dataset_cache:
+    print("Creating new tokenized dataset...")
+    tokenized_ds = create_dataset()
+else:
+    print("Loading tokenized dataset from disk...")
+    tokenized_ds = load_dataset_from_disk()
+
+    if tokenized_ds is None:
+        print("Failed to load dataset from disk, creating new tokenized dataset...")
+        tokenized_ds = create_dataset()
+
+"""
+Prepare Training Arguments
+"""
 # * Set run_name properly for logging
-run_name = "token_placeholder_NFA_002"
+run_name = "token_placeholder_NFA_003"
 training_args = TrainingArguments(
     run_name=run_name,
     output_dir=args.output_dir,
