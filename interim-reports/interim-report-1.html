@@ -437,32 +437,32 @@
 <p>First challenge was to unpack the LHCO R&amp;D data. Which was pretty straightforward but required some multiproccessing work to handle big batches in a quick manner. </p>
 <p>I found in LHCO examples that we can use jet clustering to reduce the data while keeping most of the information intact. This allowed me to reduce the data size significantly. I ran fastjet clustering with anti-kt algorithm using R=1.0. I extracted inclusive jets with pT &gt; 1.2 GeV as given in the LHCO documentation. After clustering I created jsonl files with event data. </p>
 <p>Each event data contains:</p>
-<pre class="codehilite"><code class="language-json">{
-  &quot;type&quot;: &quot;signal&quot;, 
-  &quot;jets&quot;: [{
-      &quot;P_T&quot;: 1583.804514476072, 
-      &quot;eta&quot;: -0.185737493733154, 
-      &quot;phi&quot;: 0.23724726720847764, 
-      &quot;E&quot;: 1676.0144181790492, 
-      &quot;m&quot;: 461.5742352387667, 
-      &quot;n_particles&quot;: 61, 
-      &quot;P_T_lead&quot;: 323.76043701171875, 
-      &quot;dR&quot;: {&quot;jet2&quot;: 2.9516807884922214}
-    }, 
-    {
-      &quot;P_T&quot;: 1914.9441593481358, 
-      &quot;eta&quot;: 0.36952945735006965, 
-      &quot;phi&quot;: -2.6617349835458803, 
-      &quot;E&quot;: 2049.8762080184856, 
-      &quot;m&quot;: 105.03455038005487, 
-      &quot;n_particles&quot;: 23, 
-      &quot;P_T_lead&quot;: 606.7150268554688, 
-      &quot;dR&quot;: {&quot;jet1&quot;: 2.9516807884922214}
-    }], 
-  &quot;n_particles&quot;: 143, 
-  &quot;M_jj&quot;: 566.6087856188216
-}
-</code></pre>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;signal&quot;</span><span class="p">,</span><span class="w"> </span>
+<span class="w">  </span><span class="nt">&quot;jets&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
+<span class="w">      </span><span class="nt">&quot;P_T&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1583.804514476072</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;eta&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-0.185737493733154</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;phi&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.23724726720847764</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;E&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1676.0144181790492</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;m&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">461.5742352387667</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;n_particles&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">61</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;P_T_lead&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">323.76043701171875</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;dR&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;jet2&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">2.9516807884922214</span><span class="p">}</span>
+<span class="w">    </span><span class="p">},</span><span class="w"> </span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;P_T&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1914.9441593481358</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;eta&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.36952945735006965</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;phi&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-2.6617349835458803</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;E&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">2049.8762080184856</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;m&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">105.03455038005487</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;n_particles&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">23</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;P_T_lead&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">606.7150268554688</span><span class="p">,</span><span class="w"> </span>
+<span class="w">      </span><span class="nt">&quot;dR&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;jet1&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">2.9516807884922214</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}],</span><span class="w"> </span>
+<span class="w">  </span><span class="nt">&quot;n_particles&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">143</span><span class="p">,</span><span class="w"> </span>
+<span class="w">  </span><span class="nt">&quot;M_jj&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">566.6087856188216</span>
+<span class="p">}</span>
+</code></pre></div>
 
 <ul>
 <li>Type: signal or background</li>
@@ -513,7 +513,7 @@
 <p>I found that using low rank adaptation (LoRA) would allow me to fine-tune the model within my resource constraints. I used peft library via Hugging Face transformers to implement LoRA fine-tuning. </p>
 <p>For training I created textual prompts that describe the event data quite plainly. I also created a validation script to evaluate the model's performance on validation datasets after each training epoch. </p>
 <p>As initial validation I wanted model to use just 2 words "signal" or "background" to classify events. I had to try multiple prompt formats to find the best performing one. I also wrapped the prompts with <code>[INST]</code> and <code>[/INST]</code> tokens to make the model understand where the instruction ends and response begins.</p>
-<pre class="codehilite"><code>[INST] Classify this event as 'signal' or 'background'
+<div class="codehilite"><pre><span></span><code>[INST] Classify this event as &#39;signal&#39; or &#39;background&#39;
 jets:
     Jet 1: P_T=1583.80, eta=-0.19, phi=0.24, E=1676.01, m=..
       dR_2: 2.95
@@ -522,7 +522,7 @@ jets:
 n_particles: 143
 M_jj: 566.61
 [/INST]
-</code></pre>
+</code></pre></div>
 
 <p>Example prompt with made up numbers for illustration.</p>
 <p>I did not do further customization to the prompt at this stage, such as units or reducing dR information. Also <em>I decided to use the balanced dataset for initial training runs</em> to make sure model doesn't collapse to predicting only background. Which was the case in my initial tests.</p>
@@ -649,23 +649,23 @@ M_jj: 566.61
 <h2 id="what-would-be-the-ideal-outcome">What Would Be The Ideal Outcome?</h2>
 <p>The ideal outcome of this study would be to have a fine-tuned LLM that can classify events with high accuracy, can use tools and have conscise explanations for its decisions. </p>
 <p>An example interaction could be:</p>
-<pre class="codehilite"><code>User: Here is an event data: [event data]. Is it signal or background ? Explain your reasoning.
+<div class="codehilite"><pre><span></span><code>User: Here is an event data: [event data]. Is it signal or background ? Explain your reasoning.
 
 Model &gt; Reformats the event data to be more easily understandable through external tools like fastjet clustering.
 Model &gt; Uses fastjet clustering tool to reduce the dimensionality of the event data.
 Model &gt; Uses its learned physics knowledge to analyze the clustered event data.
 
-Model: After analyzing the event data, I conclude that it is a 'signal' event because [detailed reasoning].
-</code></pre>
+Model: After analyzing the event data, I conclude that it is a &#39;signal&#39; event because [detailed reasoning].
+</code></pre></div>
 
 <p>Or within network of other models:</p>
-<pre class="codehilite"><code>User: Here is an event data: [event data]. Is it signal or background ? Explain your reasoning.
+<div class="codehilite"><pre><span></span><code>User: Here is an event data: [event data]. Is it signal or background ? Explain your reasoning.
 
-Model A: Based on the event data, I think it is a 'signal' event because [initial reasoning].
-Model B: I disagree with Model A. After analyzing the event data, I think it is a 'background' event because [detailed reasoning].
+Model A: Based on the event data, I think it is a &#39;signal&#39; event because [initial reasoning].
+Model B: I disagree with Model A. After analyzing the event data, I think it is a &#39;background&#39; event because [detailed reasoning].
 
-Model C: After considering both Model A and Model B's arguments, I conclude that the event is a 'signal' event because [final reasoning].
-</code></pre>
+Model C: After considering both Model A and Model B&#39;s arguments, I conclude that the event is a &#39;signal&#39; event because [final reasoning].
+</code></pre></div>
 
 <h2 id="next-steps">Next Steps</h2>
 <p>I think it is time to consider the viability of this approach. If I can not improve the model's performance, I might need to consider alternative approaches. Especially with black-box data signal performance this low.</p>

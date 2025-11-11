@@ -469,13 +469,13 @@
 <h3 id="training-the-model">Training the Model</h3>
 <p>I use <code>mistralai/Mistral-7B-Instruct-v0.3</code><sup id="fnref:3"><a class="footnote-ref" href="#fn:3">4</a></sup> model as my initial base model. Mainly because it is a well known open weight model and it is relatively small (7B parameters).</p>
 <p>It became apparent early on that with my system only reliable way to inject LHC data to the model was using LoRA fine tuning. This allowed me to train the model with limited resources.</p>
-<pre class="codehilite"><code>My system specs:
+<div class="codehilite"><pre><span></span><code>My system specs:
 CPU: AMD Ryzen 7 7700X 8-Core Processor
 RAM: 32 GB DDR5 (2x16GB) 6000 MT/s
 GPU: NVIDIA GeForce RTX 3070 @ 8 GB GDDR6
 SSD: 2 TB NVMe M.2 Samsung 990 Pro
 OS: Windows 11 Pro or Ubuntu 24 via WLS2
-</code></pre>
+</code></pre></div>
 
 <p>At this point I reliant on a lot of LLM help (which can be more miss than hit). I used a lot of examples from other sources, but almost every API there is related to HuggingFace Transformers library was changed in last few months. So I had to do a lot of back and forth to get a working training script. </p>
 <p>Most of the parameters I've used in the training script were just copy-paste attempts to start any training going. So as my first training run started I spend a lot of time to research what each parameter meant and if it was suitable for my use case.</p>
@@ -499,17 +499,17 @@ OS: Windows 11 Pro or Ubuntu 24 via WLS2
 <h3 id="new-prompt-values">New Prompt &amp; Values</h3>
 <p>I changed the prompt to be more specific. Which I didn't before to keep the prompt short but it was obvious now the results became more important than training time. </p>
 <p>I also added special tokens [INST] and [/INST] to help the model understand where the instruction starts and ends.</p>
-<pre class="codehilite"><code class="language-python">def format_example(example):
-    jets = example[&quot;jets&quot;]
-    s = &quot;[INST] Classify this event as 'signal' or 'background'.\n&quot;
-    s += &quot;jets:\n&quot;
-    for i, j in enumerate(jets):
-        s += f&quot;  jet{i+1}: px={j['px']:.10f} py={j['py']:.10f} pz={j['pz']:.10f} E={j['E']:.10f}\n&quot;
-    s += f&quot;num_particles: {example['num_particles']}[/INST]&quot;
+<div class="codehilite"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">format_example</span><span class="p">(</span><span class="n">example</span><span class="p">):</span>
+    <span class="n">jets</span> <span class="o">=</span> <span class="n">example</span><span class="p">[</span><span class="s2">&quot;jets&quot;</span><span class="p">]</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="s2">&quot;[INST] Classify this event as &#39;signal&#39; or &#39;background&#39;.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="n">s</span> <span class="o">+=</span> <span class="s2">&quot;jets:</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">jets</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;  jet</span><span class="si">{</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="si">}</span><span class="s2">: px=</span><span class="si">{</span><span class="n">j</span><span class="p">[</span><span class="s1">&#39;px&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.10f</span><span class="si">}</span><span class="s2"> py=</span><span class="si">{</span><span class="n">j</span><span class="p">[</span><span class="s1">&#39;py&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.10f</span><span class="si">}</span><span class="s2"> pz=</span><span class="si">{</span><span class="n">j</span><span class="p">[</span><span class="s1">&#39;pz&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.10f</span><span class="si">}</span><span class="s2"> E=</span><span class="si">{</span><span class="n">j</span><span class="p">[</span><span class="s1">&#39;E&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.10f</span><span class="si">}</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="n">s</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;num_particles: </span><span class="si">{</span><span class="n">example</span><span class="p">[</span><span class="s1">&#39;num_particles&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">[/INST]&quot;</span>
 
-    # HF Trainer expects 'labels'
-    return {&quot;input_text&quot;: s, &quot;labels&quot;: example[&quot;type&quot;]}
-</code></pre>
+    <span class="c1"># HF Trainer expects &#39;labels&#39;</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;input_text&quot;</span><span class="p">:</span> <span class="n">s</span><span class="p">,</span> <span class="s2">&quot;labels&quot;</span><span class="p">:</span> <span class="n">example</span><span class="p">[</span><span class="s2">&quot;type&quot;</span><span class="p">]}</span>
+</code></pre></div>
 
 <ul>
 <li>I tuned the LoRA parameters to r=12, which is 1.5 times more than before. This should give more knobs to turn for LoRA layers. </li>
@@ -520,7 +520,7 @@ OS: Windows 11 Pro or Ubuntu 24 via WLS2
 <li>Finally I doubled gradient_accumulation_steps from 8 to 16. This should help with stability of training. Since my GPU is limited in memory, I can't increase batch size. But appearently increasing gradient accumulation steps is an alternative to increase effective batch size.</li>
 </ul>
 <p>Checkpoint-500</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.69
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.69
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -530,10 +530,10 @@ Number of unknown predictions: 0
     accuracy                           0.69      1000
    macro avg       0.72      0.69      0.68      1000
 weighted avg       0.72      0.69      0.68      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-700</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.768
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.768
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -543,10 +543,10 @@ Number of unknown predictions: 0
     accuracy                           0.77      1000
    macro avg       0.79      0.77      0.76      1000
 weighted avg       0.79      0.77      0.76      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-900</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.793
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.793
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -556,10 +556,10 @@ Number of unknown predictions: 0
     accuracy                           0.79      1000
    macro avg       0.80      0.79      0.79      1000
 weighted avg       0.80      0.79      0.79      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-1100</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.804
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.804
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -569,7 +569,7 @@ Number of unknown predictions: 0
     accuracy                           0.80      1000
    macro avg       0.80      0.80      0.80      1000
 weighted avg       0.80      0.80      0.80      1000
-</code></pre>
+</code></pre></div>
 
 <p>3am at Checkpoint-1100 before overnight training I've reached 80.4% accuracy. This is a good improvement from previous runs. I will let it train overnight and see if it can increase accuracy further.</p>
 <p>This version was promising. So I decided to tag it as v0.1. </p>
@@ -579,7 +579,7 @@ weighted avg       0.80      0.80      0.80      1000
 <h2 id="2025-10-16">2025-10-16</h2>
 <h3 id="after-overnight-training">After Overnight Training</h3>
 <p>Checkpoint-4500</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.826
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.826
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -589,10 +589,10 @@ Number of unknown predictions: 0
     accuracy                           0.83      1000
    macro avg       0.83      0.83      0.83      1000
 weighted avg       0.83      0.83      0.83      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-4900</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.835
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.835
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -602,7 +602,7 @@ Number of unknown predictions: 0
     accuracy                           0.83      1000
    macro avg       0.84      0.83      0.83      1000
 weighted avg       0.84      0.83      0.83      1000
-</code></pre>
+</code></pre></div>
 
 <p>Diminishing returns confirmed. I will increase the learning rate slightly and see if it can push the accuracy further.</p>
 <ul>
@@ -613,7 +613,7 @@ weighted avg       0.84      0.83      0.83      1000
 <h4 id="increased-learning-rate">Increased learning rate</h4>
 <p>Model started as previous but after a point loss and gradient exploded. I paused the training at checkpoint-2300 and ran validation.
 Checkpoint-2300</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.762
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.762
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -623,13 +623,13 @@ Number of unknown predictions: 0
     accuracy                           0.76      1000
    macro avg       0.78      0.76      0.76      1000
 weighted avg       0.78      0.76      0.76      1000
-</code></pre>
+</code></pre></div>
 
 <p>Smaller learning rate was better at this point. But maybe the model is trying to escape a local minima. I will let it run a bit more and see if it can recover.</p>
 <h2 id="2025-10-17">2025-10-17</h2>
 <p>After overnight training
 Checkpoint-7100</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.43
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.43
   background       0.82      0.05      0.10       493
       signal       0.73      0.89      0.80       507
      unknown       0.00      0.00      0.00         0
@@ -637,12 +637,12 @@ Checkpoint-7100</p>
     accuracy                           0.48      1000
    macro avg       0.51      0.32      0.30      1000
 weighted avg       0.77      0.48      0.46      1000
-</code></pre>
+</code></pre></div>
 
 <p>Catastrophic failure. Model completely failed to learn anything useful. A lot of whitespace predictions too.</p>
 <p>Earlier checkpoints from same training session:
 Checkpoint-3000</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.774
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.774
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -652,10 +652,10 @@ Number of unknown predictions: 0
     accuracy                           0.77      1000
    macro avg       0.77      0.77      0.77      1000
 weighted avg       0.77      0.77      0.77      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-4000</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.79
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.79
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -665,10 +665,10 @@ Number of unknown predictions: 0
     accuracy                           0.79      1000
    macro avg       0.79      0.79      0.79      1000
 weighted avg       0.79      0.79      0.79      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-5000</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.767
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.767
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -678,10 +678,10 @@ Number of unknown predictions: 0
     accuracy                           0.77      1000
    macro avg       0.78      0.77      0.76      1000
 weighted avg       0.78      0.77      0.76      1000
-</code></pre>
+</code></pre></div>
 
 <p>Checkpoint-6000</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.776
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.776
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -691,7 +691,7 @@ Number of unknown predictions: 0
     accuracy                           0.78      1000
    macro avg       0.80      0.78      0.77      1000
 weighted avg       0.80      0.78      0.77      1000
-</code></pre>
+</code></pre></div>
 
 <h3 id="prepare-longer-prompt-with-more-features">Prepare longer prompt with more features</h3>
 <p>I decided to increase the number of features in the prompt. I calculated additional features.</p>
@@ -714,7 +714,7 @@ Also setup r=32 and lora_alpha=128, which should give more capacity to the LoRA 
 <p>But I am becoming more and more skeptical about the pure LLM approach. I think I will need to combine this with a more classical numerical model to get better results.</p>
 <p>First results of the new prompt.
 Checkpoint-200</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.722
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.722
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -724,23 +724,23 @@ Number of unknown predictions: 0
     accuracy                           0.72      1000
    macro avg       0.78      0.72      0.71      1000
 weighted avg       0.78      0.72      0.71      1000
-</code></pre>
+</code></pre></div>
 
 <p>I think this is a good candidate for overnight training. </p>
 <p>Example output:</p>
-<pre class="codehilite"><code>&lt;s&gt;[INST] Classify this event as 'signal' or 'background'.
+<div class="codehilite"><pre><span></span><code>&lt;s&gt;[INST] Classify this event as &#39;signal&#39; or &#39;background&#39;.
 jets:
   jet1: P_T=1306.5740775925 eta=1.0441122764 phi=-0.4744111075 E=2124.1572287046 m=401.5012189251 n_particles=63 P_T_lead=253.7871246338
     dR_jet2=3.33
   jet2: P_T=1411.5709990887 eta=-0.2765506225 phi=2.7480957547 E=1468.9232156050 m=94.2792501634 n_particles=22 P_T_lead=354.7843017578
     dR_jet1=3.33
 n_particles: 162 M_jj= 495.7804690885698[/INST]signal
-</code></pre>
+</code></pre></div>
 
 <p>Since dR_jet1 (angle between jet 1 to jet 2) and dR_jet2 (angle between jet 2 to jet 1) are the same value, it might be better to modify the prompt to only show dR once in the future iterations.</p>
 <p>Before overnight training I tagged this version as v0.1.1 and ran until checkpoint-400.</p>
 <p>Checkpoint-400</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.829
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.829
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -750,13 +750,13 @@ Number of unknown predictions: 0
     accuracy                           0.83      1000
    macro avg       0.85      0.83      0.83      1000
 weighted avg       0.85      0.83      0.83      1000
-</code></pre>
+</code></pre></div>
 
 <p>I would be excited but I did see 83% accuracy before and training is relatively slow with longer prompt. So I will let it train overnight and see if it can push the accuracy further.</p>
 <p>I read more about putting a numberical MLP wrapper on top of the model. This could potentially help in capturing the complex relationships between the features more effectively. </p>
 <p>Also all logic behind using LLM was for natural language comprehension and explanations. So soon I will have to try to teach the model to explain its reasoning too.</p>
 <p>Checkpoint-500</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.839
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.839
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -766,12 +766,12 @@ Number of unknown predictions: 0
     accuracy                           0.84      1000
    macro avg       0.84      0.84      0.84      1000
 weighted avg       0.84      0.84      0.84      1000
-</code></pre>
+</code></pre></div>
 
 <h2 id="2025-10-18">2025-10-18</h2>
 <h3 id="after-overnight-training_1">After Overnight Training</h3>
 <p>Checkpoint-2500</p>
-<pre class="codehilite"><code>Validation Accuracy: 0.862
+<div class="codehilite"><pre><span></span><code>Validation Accuracy: 0.862
 Number of unknown predictions: 0
               precision    recall  f1-score   support
 
@@ -781,15 +781,15 @@ Number of unknown predictions: 0
     accuracy                           0.86      1000
    macro avg       0.89      0.86      0.86      1000
 weighted avg       0.89      0.86      0.86      1000
-</code></pre>
+</code></pre></div>
 
 <p>86% accuracy over 1:1 dataset is showing we are still hitting diminshing returns.</p>
 <p>Then I wanted to see what will this model do with the original imbalanced dataset (1:10 signal to background ratio).</p>
 <p>Checkpoint-2500 on imbalanced dataset</p>
-<pre class="codehilite"><code>Number of correct background predictions: 901 out of 906
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 901 out of 906
 Number of correct signal predictions: 63 out of 94
 Validation Accuracy: 0.964
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.99      0.98       906
@@ -798,7 +798,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      1000
    macro avg       0.95      0.83      0.88      1000
 weighted avg       0.96      0.96      0.96      1000
-</code></pre>
+</code></pre></div>
 
 <p>This is a promising result. 96.4% accuracy on imbalanced dataset with 1:10 signal to background ratio. <strong>BUT my guess is that that 1:10 ratio validation dataset did include too many events from 1:1 training dataset.</strong> So model was able to memorize those events and give good results. I can't change this dataset at the moment since I would need to re-train the model from scratch.</p>
 <p>Still we are observing a good recognition considering that the model is purely LLM based. Diminishing returns are still present but I will mark this as a progress.</p>
@@ -806,10 +806,10 @@ weighted avg       0.96      0.96      0.96      1000
 <h3 id="black-box-dataset-testing">Black Box Dataset Testing</h3>
 <p>I prepared the black-box dataset in the same way as the R&amp;D dataset. Jet clustering and feature extraction was done the same way. Because the challenge was done and master key was available, I was able to get the labels for validation.</p>
 <p>Checkpoint-2500 on black-box dataset</p>
-<pre class="codehilite"><code>Number of correct background predictions: 17581 out of 17979
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 17581 out of 17979
 Number of correct signal predictions: 6 out of 21
 Validation Accuracy: 0.9770555555555556
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.98      0.99     17979
@@ -818,7 +818,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.98     18000
    macro avg       0.51      0.63      0.51     18000
 weighted avg       1.00      0.98      0.99     18000
-</code></pre>
+</code></pre></div>
 
 <p>Eventhough accuracy is high (97.7%) due to imbalanced dataset, model was only able to identify 6 out of 21 signal events. This is not a good enough result, by comparison we know LHCO contenders were generally estimating more signals than there is, rather than the other way around.</p>
 <p>Still it is good news to see the model did not collapse on signal or background only predictions and was able to perform both in 1:1 and 1:10 R&amp;D datasets as well as black-box dataset. This indicates statistically significant learning has taken place.</p>
@@ -834,10 +834,10 @@ weighted avg       1.00      0.98      0.99     18000
 <p>But even without using the adapter during validation, I hope the model was <em>somehow</em> able to match the tokens with provided numerical values. I kept the validation script as same as it was (only textual prompt input) and I received the following results.</p>
 <h4 id="checkpoint-300-with-numeric-fusion-adapter-no-adapter-during-validation">Checkpoint-300 with Numeric Fusion Adapter (no adapter during validation)</h4>
 <p>With original ratio dataset (1:10 signal to background)</p>
-<pre class="codehilite"><code>Number of correct background predictions: 840 out of 918
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 840 out of 918
 Number of correct signal predictions: 59 out of 82
 Validation Accuracy: 0.899
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.92      0.94       918
@@ -846,14 +846,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      1000
    macro avg       0.70      0.82      0.74      1000
 weighted avg       0.93      0.90      0.91      1000
-</code></pre>
+</code></pre></div>
 
 <p>Eventhough training takes longer with the adapter, likely because my limited computational resources, results seems promising. With checkpoint 300 we are already reaching 89.9% accuracy on imbalanced dataset. </p>
 <p>I also ran the same model on 1:1 dataset. </p>
-<pre class="codehilite"><code>Number of correct background predictions: 464 out of 501
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 464 out of 501
 Number of correct signal predictions: 330 out of 499
 Validation Accuracy: 0.794
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.73      0.93      0.82       501
@@ -862,7 +862,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.79      1000
    macro avg       0.82      0.79      0.79      1000
 weighted avg       0.82      0.79      0.79      1000
-</code></pre>
+</code></pre></div>
 
 <p>This is surprising. I expected the model to perform better on 1:1 dataset but it is performing better on imbalanced dataset. At least on 1:1 dataset and at Checkpoint-300, accuracy seems same as previous attempts without the adapter.</p>
 <p>Still, the day is over. So this setup is the new candidate for overnight training.</p>
@@ -871,10 +871,10 @@ weighted avg       0.82      0.79      0.79      1000
 <h3 id="after-overnight-training-with-numeric-fusion-adapter">After Overnight Training with Numeric Fusion Adapter</h3>
 <h4 id="checkpoint-1600">Checkpoint-1600</h4>
 <h5 id="11-dataset-at-1000-samples">1:1 Dataset at 1000 samples</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 452 out of 501
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 452 out of 501
 Number of correct signal predictions: 457 out of 499
 Validation Accuracy: 0.909
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.91      0.90      0.91       501
@@ -883,15 +883,15 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.91      1000
    macro avg       0.91      0.91      0.91      1000
 weighted avg       0.91      0.91      0.91      1000
-</code></pre>
+</code></pre></div>
 
 <p>This is a good improvement. 90.9% accuracy on 1:1 dataset with numeric fusion adapter.</p>
 <p>I also ran the same model on imbalanced dataset. With 2000 validation samples (1:10 signal to background ratio).</p>
 <h5 id="110-dataset-at-2000-samples">1:10 Dataset at 2000 samples</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 1610 out of 1816
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 1610 out of 1816
 Number of correct signal predictions: 170 out of 184
 Validation Accuracy: 0.89
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.89      0.94      1816
@@ -900,10 +900,10 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.89      2000
    macro avg       0.72      0.91      0.77      2000
 weighted avg       0.94      0.89      0.91      2000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-on-original-ratio">Black-box 1 Dataset on Original Ratio</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 16744 out of 19982
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 16744 out of 19982
 Number of correct signal predictions: 14 out of 18
 Validation Accuracy: 0.8379
 WARNING: Number of unknown predictions: 1
@@ -916,7 +916,7 @@ WARNING: Number of unknown predictions: 1
     accuracy                           0.84     20000
    macro avg       0.33      0.54      0.31     20000
 weighted avg       1.00      0.84      0.91     20000
-</code></pre>
+</code></pre></div>
 
 <p>These results are promising. 
 Model is able to generalize better with numeric fusion adapter eventhough we are not giving seperate numeric input. Previous blackbox test was only able to identify 6 out of 21 signal events. Now it is able to identify 14 out of 18 signal events.</p>
@@ -975,10 +975,10 @@ Model is able to generalize better with numeric fusion adapter eventhough we are
 <p>So I think I will keep running the training from checkpoint-1300. But first I ran validation to see where we are at.</p>
 <h4 id="checkpoint-1300">Checkpoint-1300</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 504 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 504 out of 524
 Number of correct signal predictions: 380 out of 476
 Validation Accuracy: 0.884
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.84      0.96      0.90       524
@@ -987,13 +987,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.88      1000
    macro avg       0.90      0.88      0.88      1000
 weighted avg       0.89      0.88      0.88      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6989 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6989 out of 7250
 Number of correct signal predictions: 605 out of 750
 Validation Accuracy: 0.94925
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.96      0.97      7250
@@ -1002,13 +1002,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.95      8000
    macro avg       0.84      0.89      0.86      8000
 weighted avg       0.95      0.95      0.95      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-disabled">1:10 Dataset at 8000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6972 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6972 out of 7250
 Number of correct signal predictions: 609 out of 750
 Validation Accuracy: 0.947625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.96      0.97      7250
@@ -1017,13 +1017,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.95      8000
    macro avg       0.83      0.89      0.86      8000
 weighted avg       0.95      0.95      0.95      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7517 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7517 out of 7989
 Number of correct signal predictions: 6 out of 11
 Validation Accuracy: 0.940375
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.94      0.97      7989
@@ -1032,14 +1032,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.94      8000
    macro avg       0.51      0.74      0.50      8000
 weighted avg       1.00      0.94      0.97      8000
-</code></pre>
+</code></pre></div>
 
 <p>Missing almost half of the signal events, but there are only 11 of them.</p>
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-disabled">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7429 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7429 out of 7989
 Number of correct signal predictions: 7 out of 11
 Validation Accuracy: 0.9295
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.93      0.96      7989
@@ -1048,16 +1048,16 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.93      8000
    macro avg       0.51      0.78      0.49      8000
 weighted avg       1.00      0.93      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <p>Microscopically better results with numeric input enabled. But overall results seems similar.</p>
 <p>I will keep training from checkpoint-1300 and see if we can push the accuracy further. I think the numeric fusion adapter needs to stabilize before showing its true potential or lack thereof.</p>
 <h4 id="checkpoint-2200">Checkpoint-2200</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_1">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 490 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 490 out of 524
 Number of correct signal predictions: 412 out of 476
 Validation Accuracy: 0.902
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.88      0.94      0.91       524
@@ -1066,13 +1066,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      1000
    macro avg       0.90      0.90      0.90      1000
 weighted avg       0.90      0.90      0.90      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="11-dataset-at-1000-samples-numeric-input-disabled">1:1 Dataset at 1000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 494 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 494 out of 524
 Number of correct signal predictions: 413 out of 476
 Validation Accuracy: 0.907
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.89      0.94      0.91       524
@@ -1081,14 +1081,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.91      1000
    macro avg       0.91      0.91      0.91      1000
 weighted avg       0.91      0.91      0.91      1000
-</code></pre>
+</code></pre></div>
 
 <p>Better results without numeric input.</p>
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_1">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6798 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6798 out of 7250
 Number of correct signal predictions: 647 out of 750
 Validation Accuracy: 0.930625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.94      0.96      7250
@@ -1097,13 +1097,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.93      8000
    macro avg       0.79      0.90      0.83      8000
 weighted avg       0.95      0.93      0.94      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-disabled_1">1:10 Dataset at 8000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6794 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6794 out of 7250
 Number of correct signal predictions: 653 out of 750
 Validation Accuracy: 0.930875
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.94      0.96      7250
@@ -1112,14 +1112,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.93      8000
    macro avg       0.79      0.90      0.83      8000
 weighted avg       0.95      0.93      0.94      8000
-</code></pre>
+</code></pre></div>
 
 <p>Slightly better results without numeric input. But negligible difference.</p>
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_1">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7166 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7166 out of 7989
 Number of correct signal predictions: 7 out of 11
 Validation Accuracy: 0.896625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.90      0.95      7989
@@ -1128,13 +1128,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      8000
    macro avg       0.50      0.77      0.48      8000
 weighted avg       1.00      0.90      0.94      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-disabled_1">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7165 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7165 out of 7989
 Number of correct signal predictions: 7 out of 11
 Validation Accuracy: 0.8965
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.90      0.95      7989
@@ -1143,7 +1143,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      8000
    macro avg       0.50      0.77      0.48      8000
 weighted avg       1.00      0.90      0.94      8000
-</code></pre>
+</code></pre></div>
 
 <p>No difference with numeric input disabled.</p>
 <h3 id="observations">Observations</h3>
@@ -1157,10 +1157,10 @@ Maybe numerics fusion adapter needs more training to show its true potential. I 
 <h3 id="after-overnight-training-with-modified-numeric-fusion-adapter">After Overnight Training with Modified Numeric Fusion Adapter</h3>
 <h4 id="checkpoint-1500">Checkpoint-1500</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_2">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 518 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 518 out of 524
 Number of correct signal predictions: 335 out of 476
 Validation Accuracy: 0.853
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.79      0.99      0.88       524
@@ -1169,13 +1169,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.85      1000
    macro avg       0.88      0.85      0.85      1000
 weighted avg       0.88      0.85      0.85      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="11-dataset-at-1000-samples-numeric-input-disabled_1">1:1 Dataset at 1000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 517 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 517 out of 524
 Number of correct signal predictions: 333 out of 476
 Validation Accuracy: 0.85
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.78      0.99      0.87       524
@@ -1184,13 +1184,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.85      1000
    macro avg       0.88      0.84      0.84      1000
 weighted avg       0.88      0.85      0.85      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_2">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7127 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7127 out of 7250
 Number of correct signal predictions: 527 out of 750
 Validation Accuracy: 0.95675
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.98      0.98      7250
@@ -1199,13 +1199,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.89      0.84      0.86      8000
 weighted avg       0.95      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-disabled_2">1:10 Dataset at 8000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7127 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7127 out of 7250
 Number of correct signal predictions: 530 out of 750
 Validation Accuracy: 0.957125
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.98      0.98      7250
@@ -1214,7 +1214,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.89      0.84      0.87      8000
 weighted avg       0.96      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <p>Negligible differences again.</p>
 <h3 id="found-a-bug">Found a bug !</h3>
@@ -1223,10 +1223,10 @@ weighted avg       0.96      0.96      0.96      8000
 <h3 id="after-bugfix">After bugfix</h3>
 <h4 id="checkpoint-400">Checkpoint-400</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_3">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 487 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 487 out of 524
 Number of correct signal predictions: 356 out of 476
 Validation Accuracy: 0.843
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.80      0.93      0.86       524
@@ -1235,13 +1235,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.84      1000
    macro avg       0.85      0.84      0.84      1000
 weighted avg       0.85      0.84      0.84      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="11-dataset-at-1000-samples-numeric-input-disabled_2">1:1 Dataset at 1000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 71 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 71 out of 524
 Number of correct signal predictions: 475 out of 476
 Validation Accuracy: 0.546
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.14      0.24       524
@@ -1250,17 +1250,17 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.55      1000
    macro avg       0.75      0.57      0.46      1000
 weighted avg       0.76      0.55      0.45      1000
-</code></pre>
+</code></pre></div>
 
 <p>Finally ! We are seeing a solid difference with numeric fusion adapter enabled. Even on an early checkpoint like 400. </p>
 <p>Note that since now we correctly train with the fusion adapter, we might be making word-only training worse by disabling numeric input. We will need to compare 2 setups at later checkpoints to see the real difference.</p>
 <h2 id="2025-10-22">2025-10-22</h2>
 <h4 id="checkpoint-2400">Checkpoint 2400</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_4">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 466 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 466 out of 524
 Number of correct signal predictions: 431 out of 476
 Validation Accuracy: 0.897
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.91      0.89      0.90       524
@@ -1269,13 +1269,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      1000
    macro avg       0.90      0.90      0.90      1000
 weighted avg       0.90      0.90      0.90      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="11-dataset-at-1000-samples-numeric-input-disabled_3">1:1 Dataset at 1000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 46 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 46 out of 524
 Number of correct signal predictions: 475 out of 476
 Validation Accuracy: 0.521
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.09      0.16       524
@@ -1284,13 +1284,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.52      1000
    macro avg       0.74      0.54      0.41      1000
 weighted avg       0.75      0.52      0.40      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_3">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6395 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6395 out of 7250
 Number of correct signal predictions: 680 out of 750
 Validation Accuracy: 0.884375
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.88      0.93      7250
@@ -1299,13 +1299,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.88      8000
    macro avg       0.72      0.89      0.76      8000
 weighted avg       0.94      0.88      0.90      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-disabled_3">1:10 Dataset at 8000 samples &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 741 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 741 out of 7250
 Number of correct signal predictions: 749 out of 750
 Validation Accuracy: 0.18625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.10      0.19      7250
@@ -1314,14 +1314,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.19      8000
    macro avg       0.55      0.55      0.19      8000
 weighted avg       0.91      0.19      0.19      8000
-</code></pre>
+</code></pre></div>
 
 <p>Huge difference again. Model is completely failing without numeric input. But is it more successful than previous attempts without numeric fusion adapter ?</p>
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_2">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6440 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6440 out of 7989
 Number of correct signal predictions: 9 out of 11
 Validation Accuracy: 0.806125
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.81      0.89      7989
@@ -1330,13 +1330,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.81      8000
    macro avg       0.50      0.81      0.45      8000
 weighted avg       1.00      0.81      0.89      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-disabled_2">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input DISABLED</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 847 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 847 out of 7989
 Number of correct signal predictions: 11 out of 11
 Validation Accuracy: 0.10725
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.11      0.19      7989
@@ -1345,7 +1345,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.11      8000
    macro avg       0.50      0.55      0.10      8000
 weighted avg       1.00      0.11      0.19      8000
-</code></pre>
+</code></pre></div>
 
 <h3 id="comparisons">Comparisons</h3>
 <p>Up to bugfix (2025-10-21) we can assume models were not trained with numeric features at all. So we can compare the results before and after bugfix to see the impact of numeric fusion adapter.</p>
@@ -1480,8 +1480,8 @@ All predictions classified as 'signal' or 'background'.
               precision    recall  f1-score   support</p>
 <p>background       0.87      0.94      0.91       524
       signal       0.93      0.85      0.89       476</p>
-<pre class="codehilite"><code>accuracy                           0.90      1000
-</code></pre>
+<div class="codehilite"><pre><span></span><code>accuracy                           0.90      1000
+</code></pre></div>
 
 <p>macro avg       0.90      0.90      0.90      1000
 weighted avg       0.90      0.90      0.90      1000</p>
@@ -1493,17 +1493,17 @@ All predictions classified as 'signal' or 'background'.
               precision    recall  f1-score   support</p>
 <p>background       0.93      0.17      0.29       524
       signal       0.52      0.99      0.68       476</p>
-<pre class="codehilite"><code>accuracy                           0.56      1000
-</code></pre>
+<div class="codehilite"><pre><span></span><code>accuracy                           0.56      1000
+</code></pre></div>
 
 <p>macro avg       0.72      0.58      0.49      1000
 weighted avg       0.73      0.56      0.48      1000</p>
 <p>It is obvious that with numeric input disabled model is failing completely. So I will use numeric input enabled for rest of the tests.</p>
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_4">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6797 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6797 out of 7250
 Number of correct signal predictions: 635 out of 750
 Validation Accuracy: 0.929
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.94      0.96      7250
@@ -1512,13 +1512,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.93      8000
    macro avg       0.78      0.89      0.83      8000
 weighted avg       0.95      0.93      0.93      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_3">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7141 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7141 out of 7989
 Number of correct signal predictions: 8 out of 11
 Validation Accuracy: 0.893625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.89      0.94      7989
@@ -1527,16 +1527,16 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.89      8000
    macro avg       0.50      0.81      0.48      8000
 weighted avg       1.00      0.89      0.94      8000
-</code></pre>
+</code></pre></div>
 
 <h2 id="2025-10-24">2025-10-24</h2>
 <h3 id="after-3rd-day-of-training">After 3rd day of training</h3>
 <h4 id="checkpoint-7700">Checkpoint-7700</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_6">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 465 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 465 out of 524
 Number of correct signal predictions: 432 out of 476
 Validation Accuracy: 0.897
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.91      0.89      0.90       524
@@ -1545,13 +1545,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      1000
    macro avg       0.90      0.90      0.90      1000
 weighted avg       0.90      0.90      0.90      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_5">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6427 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6427 out of 7250
 Number of correct signal predictions: 693 out of 750
 Validation Accuracy: 0.89
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.89      0.94      7250
@@ -1560,13 +1560,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.89      8000
    macro avg       0.72      0.91      0.77      8000
 weighted avg       0.94      0.89      0.91      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_4">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6589 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6589 out of 7989
 Number of correct signal predictions: 9 out of 11
 Validation Accuracy: 0.82475
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.82      0.90      7989
@@ -1575,7 +1575,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.82      8000
    macro avg       0.50      0.82      0.46      8000
 weighted avg       1.00      0.82      0.90      8000
-</code></pre>
+</code></pre></div>
 
 <p>I will continue training for one more night, but I will change the training dataset to imbalanced 1:10 dataset. Hopefully this will help the model to generalize better on black-box dataset.</p>
 <h2 id="2025-10-25">2025-10-25</h2>
@@ -1583,10 +1583,10 @@ weighted avg       1.00      0.82      0.90      8000
 <p>I have modified the training script to use imbalanced 1:10 dataset for training. I will continue training from checkpoint-7700.</p>
 <h4 id="checkpoint-9800">Checkpoint-9800</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_7">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 514 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 514 out of 524
 Number of correct signal predictions: 361 out of 476
 Validation Accuracy: 0.875
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.82      0.98      0.89       524
@@ -1595,13 +1595,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.88      1000
    macro avg       0.90      0.87      0.87      1000
 weighted avg       0.89      0.88      0.87      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_6">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7091 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7091 out of 7250
 Number of correct signal predictions: 573 out of 750
 Validation Accuracy: 0.958
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.98      0.98      7250
@@ -1610,13 +1610,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.88      0.87      0.88      8000
 weighted avg       0.96      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_5">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7692 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7692 out of 7989
 Number of correct signal predictions: 5 out of 11
 Validation Accuracy: 0.962125
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.96      0.98      7989
@@ -1625,16 +1625,16 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.51      0.71      0.51      8000
 weighted avg       1.00      0.96      0.98      8000
-</code></pre>
+</code></pre></div>
 
 <h2 id="2025-10-26">2025-10-26</h2>
 <h3 id="after-training-on-imbalanced-dataset">After training on imbalanced dataset</h3>
 <h4 id="checkpoint-11800">Checkpoint-11800</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_8">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 517 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 517 out of 524
 Number of correct signal predictions: 325 out of 476
 Validation Accuracy: 0.842
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.77      0.99      0.87       524
@@ -1643,13 +1643,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.84      1000
    macro avg       0.88      0.83      0.84      1000
 weighted avg       0.87      0.84      0.84      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_7">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7162 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7162 out of 7250
 Number of correct signal predictions: 533 out of 750
 Validation Accuracy: 0.961875
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.99      0.98      7250
@@ -1658,13 +1658,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.91      0.85      0.88      8000
 weighted avg       0.96      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_6">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7806 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7806 out of 7989
 Number of correct signal predictions: 6 out of 11
 Validation Accuracy: 0.9765
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.98      0.99      7989
@@ -1673,15 +1673,15 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.98      8000
    macro avg       0.52      0.76      0.52      8000
 weighted avg       1.00      0.98      0.99      8000
-</code></pre>
+</code></pre></div>
 
 <h2 id="2025-10-27">2025-10-27</h2>
 <h4 id="checkpoint-17300">Checkpoint-17300</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_9">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 519 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 519 out of 524
 Number of correct signal predictions: 315 out of 476
 Validation Accuracy: 0.834
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.76      0.99      0.86       524
@@ -1690,13 +1690,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.83      1000
    macro avg       0.87      0.83      0.83      1000
 weighted avg       0.87      0.83      0.83      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_8">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7168 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7168 out of 7250
 Number of correct signal predictions: 522 out of 750
 Validation Accuracy: 0.96125
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.99      0.98      7250
@@ -1705,13 +1705,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.92      0.84      0.87      8000
 weighted avg       0.96      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_7">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7809 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7809 out of 7989
 Number of correct signal predictions: 3 out of 11
 Validation Accuracy: 0.9765
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.98      0.99      7989
@@ -1720,7 +1720,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.98      8000
    macro avg       0.51      0.63      0.51      8000
 weighted avg       1.00      0.98      0.99      8000
-</code></pre>
+</code></pre></div>
 
 <p>False signal predictions are decreasing, but we started to lose true signal predictions as well. Model seems to be collapsing to mostly predicting background.</p>
 <h3 id="a-change">A Change</h3>
@@ -1731,10 +1731,10 @@ weighted avg       1.00      0.98      0.99      8000
 <p>Checkpoints increased only by 1400, float32 must be slowing down the training or the system slept during the night. I will diagnose it further if needed.</p>
 <h4 id="checkpoint-18700">Checkpoint-18700</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_10">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 520 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 520 out of 524
 Number of correct signal predictions: 315 out of 476
 Validation Accuracy: 0.835
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.76      0.99      0.86       524
@@ -1743,13 +1743,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.83      1000
    macro avg       0.88      0.83      0.83      1000
 weighted avg       0.87      0.83      0.83      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_9">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7181 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7181 out of 7250
 Number of correct signal predictions: 512 out of 750
 Validation Accuracy: 0.961625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.99      0.98      7250
@@ -1758,13 +1758,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.92      0.84      0.87      8000
 weighted avg       0.96      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_8">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7833 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7833 out of 7989
 Number of correct signal predictions: 3 out of 11
 Validation Accuracy: 0.9795
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.98      0.99      7989
@@ -1773,7 +1773,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.98      8000
    macro avg       0.51      0.63      0.51      8000
 weighted avg       1.00      0.98      0.99      8000
-</code></pre>
+</code></pre></div>
 
 <h3 id="seperating-numeric-feature-optimization-from-lora">Seperating Numeric Feature Optimization From LoRA</h3>
 <p>I think reaching results of Checkpoint-18700 was an overall improvement compared to previous attempts. We were able to reduce the wrong signal predictions but it came at the cost of losing true signal predictions as well. So eventhough rough accuracy improved, model is still not very useful for our task. </p>
@@ -1787,10 +1787,10 @@ weighted avg       1.00      0.98      0.99      8000
 <h3 id="after-restarting-training-with-seperated-optimizers">After restarting training with seperated optimizers</h3>
 <h4 id="checkpoint-2200_1">Checkpoint-2200</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_11">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 498 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 498 out of 524
 Number of correct signal predictions: 397 out of 476
 Validation Accuracy: 0.895
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.86      0.95      0.90       524
@@ -1799,13 +1799,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      1000
    macro avg       0.90      0.89      0.89      1000
 weighted avg       0.90      0.90      0.89      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_10">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6928 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6928 out of 7250
 Number of correct signal predictions: 628 out of 750
 Validation Accuracy: 0.9445
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.96      0.97      7250
@@ -1814,13 +1814,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.94      8000
    macro avg       0.82      0.90      0.85      8000
 weighted avg       0.95      0.94      0.95      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_9">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7398 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7398 out of 7989
 Number of correct signal predictions: 7 out of 11
 Validation Accuracy: 0.925625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.93      0.96      7989
@@ -1829,7 +1829,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.93      8000
    macro avg       0.51      0.78      0.49      8000
 weighted avg       1.00      0.93      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <h3 id="comparison-with-float16-nfa-training">Comparison with Float16 NFA Training</h3>
 <figure>
@@ -1926,10 +1926,10 @@ weighted avg       1.00      0.93      0.96      8000
 <h3 id="after-fixing-nfa-weight-update-issue">After fixing NFA weight update issue</h3>
 <h4 id="checkpoint-2200_2">Checkpoint-2200</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_12">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 487 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 487 out of 524
 Number of correct signal predictions: 396 out of 476
 Validation Accuracy: 0.883
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.86      0.93      0.89       524
@@ -1938,13 +1938,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.88      1000
    macro avg       0.89      0.88      0.88      1000
 weighted avg       0.89      0.88      0.88      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_11">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6808 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6808 out of 7250
 Number of correct signal predictions: 628 out of 750
 Validation Accuracy: 0.9295
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.98      0.94      0.96      7250
@@ -1953,13 +1953,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.93      8000
    macro avg       0.78      0.89      0.83      8000
 weighted avg       0.95      0.93      0.93      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_10">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7129 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7129 out of 7989
 Number of correct signal predictions: 9 out of 11
 Validation Accuracy: 0.89225
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.89      0.94      7989
@@ -1968,14 +1968,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.89      8000
    macro avg       0.51      0.86      0.48      8000
 weighted avg       1.00      0.89      0.94      8000
-</code></pre>
+</code></pre></div>
 
 <h4 id="checkpoint-4600">Checkpoint-4600</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_13">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 463 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 463 out of 524
 Number of correct signal predictions: 435 out of 476
 Validation Accuracy: 0.898
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.92      0.88      0.90       524
@@ -1984,13 +1984,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.90      1000
    macro avg       0.90      0.90      0.90      1000
 weighted avg       0.90      0.90      0.90      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_12">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6408 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6408 out of 7250
 Number of correct signal predictions: 691 out of 750
 Validation Accuracy: 0.887375
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.88      0.93      7250
@@ -1999,13 +1999,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.89      8000
    macro avg       0.72      0.90      0.77      8000
 weighted avg       0.94      0.89      0.90      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_11">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6462 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6462 out of 7989
 Number of correct signal predictions: 9 out of 11
 Validation Accuracy: 0.808875
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.81      0.89      7989
@@ -2014,7 +2014,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.81      8000
    macro avg       0.50      0.81      0.45      8000
 weighted avg       1.00      0.81      0.89      8000
-</code></pre>
+</code></pre></div>
 
 <p>Results are dissapointing. NFA weights are changing now but model performance is degraded compared to previous validation run at Checkpoint-2200. Previous attempt before fixing NFA weight update issue was performing better also. </p>
 <p>I will keep the training but reducing learning rate for NFA to 3e-4. Loss was still decreasing but with a lower rate now, so I hope this will lead to better results. If not, I will switch to imbalanced dataset for rest of the training run.</p>
@@ -2022,10 +2022,10 @@ weighted avg       1.00      0.81      0.89      8000
 <h3 id="after-lowering-nfa-learning-rate-overnight-training">After lowering NFA learning rate &amp; overnight training</h3>
 <h4 id="checkpoint-6900">Checkpoint-6900</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_14">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 441 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 441 out of 524
 Number of correct signal predictions: 445 out of 476
 Validation Accuracy: 0.886
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.93      0.84      0.89       524
@@ -2034,13 +2034,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.89      1000
    macro avg       0.89      0.89      0.89      1000
 weighted avg       0.89      0.89      0.89      1000
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_13">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6101 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6101 out of 7250
 Number of correct signal predictions: 713 out of 750
 Validation Accuracy: 0.85175
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.99      0.84      0.91      7250
@@ -2049,13 +2049,13 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.85      8000
    macro avg       0.69      0.90      0.73      8000
 weighted avg       0.94      0.85      0.88      8000
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_12">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 6070 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 6070 out of 7989
 Number of correct signal predictions: 9 out of 11
 Validation Accuracy: 0.759875
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.76      0.86      7989
@@ -2064,7 +2064,7 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.76      8000
    macro avg       0.50      0.79      0.44      8000
 weighted avg       1.00      0.76      0.86      8000
-</code></pre>
+</code></pre></div>
 
 <h3 id="summary-of-results-so-far">Summary of Results So Far</h3>
 <p>On checkpoint-6900, model performance has degraded further compared to previous checkpoints.</p>
@@ -2072,10 +2072,10 @@ weighted avg       1.00      0.76      0.86      8000
 <h3 id="after-further-training-on-imbalanced-dataset">After Further Training on Imbalanced Dataset</h3>
 <h4 id="checkpoint-8400">Checkpoint-8400</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_15">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 517 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 517 out of 524
 Number of correct signal predictions: 355 out of 476
 Validation Accuracy: 0.872
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.81      0.99      0.89       524
@@ -2084,14 +2084,14 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.87      1000
    macro avg       0.90      0.87      0.87      1000
 weighted avg       0.89      0.87      0.87      1000
-</code></pre>
+</code></pre></div>
 
 <p>Slightly better results than checkpoint-6900. But this seems like because background predictions increased. Signal predictions are even lower than before.</p>
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_14">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7135 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7135 out of 7250
 Number of correct signal predictions: 566 out of 750
 Validation Accuracy: 0.962625
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.98      0.98      7250
@@ -2100,11 +2100,11 @@ All predictions classified as 'signal' or 'background'.
     accuracy                           0.96      8000
    macro avg       0.90      0.87      0.89      8000
 weighted avg       0.96      0.96      0.96      8000
-</code></pre>
+</code></pre></div>
 
 <p>Looks like an improvement over the surface. Again model is favoring background predictions more, so the wrong signal predictions are reduced but true signal predictions are lost as well. This effects the scores positively but it is expected since we trained on imbalanced dataset. As the training continues, it might end up collapsing to predicting only background.</p>
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_13">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7747 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7747 out of 7989
 Number of correct signal predictions: 4 out of 11
 Number of correct unknown predictions: 0 out of 0
 Validation Accuracy: 0.968875
@@ -2118,7 +2118,7 @@ WARNING: Number of unknown predictions: 1
     accuracy                           0.97      8000
    macro avg       0.34      0.44      0.34      8000
 weighted avg       1.00      0.97      0.98      8000
-</code></pre>
+</code></pre></div>
 
 <p>Here too model is favoring background predictions heavily. So false signal predictions are reduced but true signal predictions are also lower than before.</p>
 <p>I will continue training overnight and see if the model improves. I might try to change the loss function or NFA architecture if results do not improve further.</p>
@@ -2126,10 +2126,10 @@ weighted avg       1.00      0.97      0.98      8000
 <h3 id="after-further-training-on-imbalanced-dataset-overnight">After Further Training on Imbalanced Dataset Overnight</h3>
 <h4 id="checkpoint-10200">Checkpoint-10200</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_16">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 517 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 517 out of 524
 Number of correct signal predictions: 319 out of 476
 Validation Accuracy: 0.836
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.77      0.99      0.86       524
@@ -2140,13 +2140,13 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       0.87      0.84      0.83      1000
 
 SIC (Significance Improvement Characteristic): 5.7983
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_15">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7174 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7174 out of 7250
 Number of correct signal predictions: 528 out of 750
 Validation Accuracy: 0.96275
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.99      0.98      7250
@@ -2157,13 +2157,13 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       0.96      0.96      0.96      8000
 
 SIC (Significance Improvement Characteristic): 6.8760
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_14">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7832 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7832 out of 7989
 Number of correct signal predictions: 2 out of 11
 Validation Accuracy: 0.97925
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.98      0.99      7989
@@ -2174,7 +2174,7 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       1.00      0.98      0.99      8000
 
 SIC (Significance Improvement Characteristic): 1.2970
-</code></pre>
+</code></pre></div>
 
 <p>With these I also added SIC (Significance Improvement Characteristic) so I can compare the model performance better.<sup id="fnref:5"><a class="footnote-ref" href="#fn:5">5</a></sup> SIC is calculated as:
 $$
@@ -2255,10 +2255,10 @@ Focal loss is defined as:</p>
 <h3 id="after-restarting-training-with-new-nfa-injection-method">After Restarting Training with New NFA Injection Method</h3>
 <h4 id="checkpoint-2400_1">Checkpoint-2400</h4>
 <h5 id="11-dataset-at-1000-samples-numeric-input-enabled_17">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 514 out of 524
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 514 out of 524
 Number of correct signal predictions: 324 out of 476
 Validation Accuracy: 0.838
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.77      0.98      0.86       524
@@ -2269,13 +2269,13 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       0.87      0.84      0.83      1000
 
 SIC (Significance Improvement Characteristic): 4.9272
-</code></pre>
+</code></pre></div>
 
 <h5 id="110-dataset-at-8000-samples-numeric-input-enabled_16">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7156 out of 7250
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7156 out of 7250
 Number of correct signal predictions: 547 out of 750
 Validation Accuracy: 0.962875
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       0.97      0.99      0.98      7250
@@ -2286,13 +2286,13 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       0.96      0.96      0.96      8000
 
 SIC (Significance Improvement Characteristic): 6.4052
-</code></pre>
+</code></pre></div>
 
 <h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_15">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
-<pre class="codehilite"><code>Number of correct background predictions: 7761 out of 7989
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7761 out of 7989
 Number of correct signal predictions: 0 out of 11
 Validation Accuracy: 0.970125
-All predictions classified as 'signal' or 'background'.
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
               precision    recall  f1-score   support
 
   background       1.00      0.97      0.98      7989
@@ -2303,7 +2303,7 @@ All predictions classified as 'signal' or 'background'.
 weighted avg       1.00      0.97      0.98      8000
 
 SIC (Significance Improvement Characteristic): 0.0000
-</code></pre>
+</code></pre></div>
 
 <p>As expected, model is performing best at its imbalanced training dataset. But still losing all true signal predictions on black-box dataset. Checkpoint-2200 is somewhat early considering the NFA is still receiving gradients and loss is <em>slowly</em> decreasing. But I think this is a good enough comparison point to previous attempts.</p>
 <p>But something interesting happened in validation. When I validate with single token output, everything seems fine. But when I validate with multi-token output it is obvious that LLM forgot all its language modeling capabilities. It just outputs "background" or "signal" repeatedly without any context. I thought this might be related to the fact that in label construction I masked everything except the answer token. So the model is forgetting how to generate text properly.</p>
@@ -2326,11 +2326,197 @@ SIC (Significance Improvement Characteristic): 0.0000
 <p>Also, I found a weird bug on prompt generation where the <span class="arithmatex">\(\Delta_R\)</span> information was being added 3 times even when this information did not exist in the dataset. I also fixed this bug by a check but I actually couldn't find why it was happening, likely it is a immutability or scope leak issue on the for loop. Fixing this bug actually reduced the prompt length and allowed me to add things like tool response and continuation text without exceeding the token limit, which is currently 512 tokens.</p>
 <p>Finally, I modified the validation script to optionally ask the model for explanation after classification. This way I can see if the model is able to generate plausible explanations along with correct classifications. Also I used native chat template for validation as well to be consistent with training prompt structure.</p>
 <p>This will be tonight's training run. I will validate at checkpoint-2200 again if all looks good.</p>
+<h2 id="2025-11-06">2025-11-06</h2>
+<h3 id="after-adding-continuation-text-to-prompt-label-construction">After Adding Continuation Text to Prompt &amp; Label Construction</h3>
+<p>I ran the validations for checkpoint-2200. Good news is the model is able to keep its language modeling capabilities intact. It is generating plausible continuation text after classification answer. </p>
+<p>Bad news is that automated caching for the created "explanation" prompts was not saved properly. With current setup, generating explanation prompts takes a long time because it has to run the model for each sample. Not to mention the model has LoRA + NFA modifications which can make the answer different than base model. So I had to run the explanation prompt generation again and save the cache this time.</p>
+<p>Also because I saw some repetition in the generated explanations, I increased the diversity of the explanation prompts by adding more "creativity" to the generation request and increased number of data samples with clarification </p>
+<figure>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Following settings help increase variability</span>
+<span class="n">do_sample</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="c1"># enable sampling</span>
+<span class="n">temperature</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="c1"># moderate temperature for diversity, not too high</span>
+<span class="n">top_p</span><span class="o">=</span><span class="mf">0.9</span><span class="p">,</span> <span class="c1"># nucleus sampling, keep top 90% prob mass</span>
+<span class="n">repetition_penalty</span><span class="o">=</span><span class="mf">1.1</span> <span class="c1"># slight penalty to discourage repetition, helps with longer outputs</span>
+</code></pre></div>
+
+<figcaption>
+<p>These settings are guessed based on prior experience. I did not do a systematic hyperparameter search. 
+They can be further optimized in the future.</p>
+</figcaption>
+</figure>
+<h4 id="some-examples-of-generated-explanations">Some Examples of Generated Explanations</h4>
+<div class="codehilite"><pre><span></span><code>[INST] Evaluate this event: is it more consistent with a &#39;signal&#39; or a &#39;background&#39;?
+jets:
+  jet1: P_T=1330.1609666288 eta=-0.3387912623 phi=2.1222351469 E=1417.2583626610 m=168.2873433972 n_particles=38 P_T_lead=374.6896057129
+    dR_jet2=3.12
+  jet2: P_T=1360.1852338307 eta=-0.2880017591 phi=-0.9989003772 E=1485.8176136533 m=446.9935020831 n_particles=103 P_T_lead=274.8609619141
+    dR_jet1=3.12
+n_particles: 174 M_jj= 615.280845480314[/INST][TOOL_RESULTS] {&quot;content&quot;: {&quot;result&quot;: &quot;&lt;JET_FEATURES&gt;&quot;}, &quot;call_id&quot;: &quot;qbmcru2q3&quot;}[/TOOL_RESULTS] background&lt;/s&gt;[INST] Clarify the previous classification.[/INST] The previous classification indicated that the provided data is more likely to be classified as &quot;background&quot; rather than a &quot;signal&quot;. This classification is based on the properties of high-energy physics events, where signals are typically characterized by specific patterns and interactions not commonly observed in normal (or background) processes. In this case, having a large number of particles (174) and a high total energy release (M_jj = 615.28 GeV), but no unusual characteristics in the individual jets (jet1 and jet2), suggests that this event might be an example of&lt;/s&gt;
+</code></pre></div>
+
+<ul>
+<li><strong>User:</strong> Evaluate this event: is it more consistent with a 'signal' or a 'background'?</li>
+<li><strong>Tool Response:</strong> <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)</li>
+<li><strong>Assistant:</strong> background</li>
+<li><strong>User:</strong> Clarify the previous classification.</li>
+<li><strong>Assistant:</strong> The previous classification indicated that the provided data is more likely to be classified as "background" rather than a "signal". This classification is based on the properties of high-energy physics events, where signals are typically characterized by specific patterns and interactions not commonly observed in normal (or background) processes. In this case, having a large number of particles (174) and a high total energy release (M_jj = 615.28 GeV), but no unusual characteristics in the individual jets (jet1 and jet2), suggests that this event might be an example of (hits token limit)</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note<br></p>
+<p>Even though the explanation is cut off due to token limit, after training it can continue generating plausible text. So I think this is working as intended.</p>
+</div>
+<hr>
+
+<figure>
+<div class="codehilite"><pre><span></span><code>[INST] Predict whether this event should be categorized as &#39;signal&#39; or &#39;background&#39;.
+jets:
+  jet1: P_T=1306.8708945102 eta=-0.5756262992 phi=1.9975505172 E=1530.5868056895 m=59.5303337297 n_particles=23 P_T_lead=728.5612792969
+n_particles: 151 M_jj= 59.530333729687[/INST]
+
+[TOOL_RESULTS] {&quot;content&quot;: {&quot;result&quot;: &quot;&lt;JET_FEATURES&gt;&quot;}, &quot;call_id&quot;: &quot;7hqg1y11k&quot;}[/TOOL_RESULTS] 
+
+background&lt;/s&gt;
+
+[INST] Please justify your classification.[/INST] 
+
+The classification of the event as &#39;background&#39; is based on the properties of the jet and number of particles, specifically the transverse momentum (P_T) of the leading jet (jet1), which is lower than typical signals in high energy physics experiments. In general, higher values of P_T are expected for signal events compared to background events. Additionally, the total mass of the two jets (M_jj) is not unusually high for a QCD multijet background process. Therefore, it is more likely that this event represents a common background process rather than a signal of&lt;/s&gt;
+</code></pre></div>
+
+<figcaption>
+<p>This time I added newlines to separate the tool response and assistant message for clarity. Normally these would not be present in the actual prompt.</p>
+</figcaption>
+</figure>
+<ul>
+<li><strong>User:</strong> Predict whether this event should be categorized as 'signal' or 'background'.</li>
+<li><strong>Tool Response:</strong> <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)</li>
+<li><strong>Assistant:</strong> background</li>
+<li><strong>User:</strong> Please justify your classification.</li>
+<li><strong>Assistant:</strong> The classification of the event as 'background' is based on the properties of the jet and number of particles, specifically the transverse momentum (P_T) of the leading jet (jet1), which is lower than typical signals in high energy physics experiments. In general, higher values of P_T are expected for signal events compared to background events. Additionally, the total mass of the two jets (M_jj) is not unusually high for a QCD multijet background process. Therefore, it is more likely that this event represents a common background process rather than a signal of (hits token limit)</li>
+</ul>
+<hr>
+
+<div class="codehilite"><pre><span></span><code>[INST] From the given jet information, determine if the event is a &#39;signal&#39; or &#39;background&#39;.
+jets:
+  jet1: P_T=1337.8710692594 eta=0.0130336148 phi=1.8803767721 E=1342.4080450443 m=108.8865690582 n_particles=27 P_T_lead=635.6193237305
+    dR_jet2=3.07
+  jet2: P_T=1418.7981293410 eta=-0.3607224133 phi=-1.3569014380 E=1516.1929487774 m=111.1833726481 n_particles=37 P_T_lead=334.2713928223
+    dR_jet1=3.07
+n_particles: 136 M_jj= 220.06994170632814[/INST]
+
+[TOOL_RESULTS] {&quot;content&quot;: {&quot;result&quot;: &quot;&lt;JET_FEATURES&gt;&quot;}, &quot;call_id&quot;: &quot;s1xiwg459&quot;}[/TOOL_RESULTS] 
+
+background&lt;/s&gt;
+
+[INST] Could you explain your reasoning ?[/INST] 
+
+The event is considered as background since neither of the jets have a high transverse momentum ($P_T$) or high mass ($M_{jj}$) which are typical characteristics of signals in physics analyses. In this case, both jets have $P_T$ values less than 1 TeV and their invariant mass ($M_{jj}$) is around 220 GeV, which is lower than the mass of many signal particles. Additionally, the number of particles ($n\_particles$) in each jet is also not unusually high. Therefore, based on these observables&lt;/s&gt;
+</code></pre></div>
+
+<ul>
+<li><strong>User:</strong> From the given jet information, determine if the event is a 'signal' or 'background'.</li>
+<li><strong>Tool Response:</strong> <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)</li>
+<li><strong>Assistant:</strong> background</li>
+<li><strong>User:</strong> Could you explain your reasoning ?</li>
+<li><strong>Assistant:</strong> The event is considered as background since neither of the jets have a high transverse momentum (<span class="arithmatex">\(P_T\)</span>) or high mass (<span class="arithmatex">\(M_{jj}\)</span>) which are typical characteristics of signals in physics analyses. In this case, both jets have <span class="arithmatex">\(P_T\)</span> values less than 1 TeV and their invariant mass (<span class="arithmatex">\(M_{jj}\)</span>) is around 220 GeV, which is lower than the mass of many signal particles. Additionally, the number of particles (<span class="arithmatex">\(n\_particles\)</span>) in each jet is also not unusually high. Therefore, based on these observables (hits token limit)</li>
+</ul>
+<hr>
+
+<div class="codehilite"><pre><span></span><code>[INST] Is this event a &#39;signal&#39; or a &#39;background&#39;?
+jets:
+  jet1: P_T=1570.2972062072 eta=-0.2993632305 phi=-2.1183841628 E=1643.4775804222 m=86.7211170908 n_particles=22 P_T_lead=460.1471252441
+    dR_jet2=3.25
+  jet2: P_T=1708.0966426003 eta=0.5889456367 phi=1.0398714940 E=2075.1942300695 m=504.2784400247 n_particles=53 P_T_lead=329.3392333984
+    dR_jet1=3.25
+n_particles: 96 M_jj= 590.9995571155307[/INST]
+
+[TOOL_RESULTS] {&quot;content&quot;: {&quot;result&quot;: &quot;&lt;JET_FEATURES&gt;&quot;}, &quot;call_id&quot;: &quot;9oj8z8l04&quot;}[/TOOL_RESULTS] 
+
+signal&lt;/s&gt;
+
+[INST] Can you provide more details ?[/INST] 
+
+The provided data represents two jets (particles produced in the collision) and their properties such as transverse momentum (P_T), rapidity (eta), azimuthal angle (phi), energy (E), mass (m), number of particles (n_particle), and transverse distance from each other (dR_jet1, dR_jet2). The variable M_jj refers to the invariant mass of the two jets. In high-energy physics, these variables are used to classify events as signals (new physics processes) or backgrounds (known&lt;/s&gt;
+</code></pre></div>
+
+<ul>
+<li><strong>User:</strong> Is this event a 'signal' or a 'background'?</li>
+<li><strong>Tool Response:</strong> <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)</li>
+<li><strong>Assistant:</strong> signal</li>
+<li><strong>User:</strong> Can you provide more details ?</li>
+<li><strong>Assistant:</strong> The provided data represents two jets (particles produced in the collision) and their properties such as transverse momentum (P_T), rapidity (eta), azimuthal angle (phi), energy (E), mass (m), number of particles (n_particle), and transverse distance from each other (dR_jet1, dR_jet2). The variable M_jj refers to the invariant mass of the two jets. In high-energy physics, these variables are used to classify events as signals (new physics processes) or backgrounds (known (hits token limit)</li>
+</ul>
+<h2 id="2025-11-08">2025-11-08</h2>
+<h3 id="after-training-with-continuation-text-prompt-construction">After Training with Continuation Text Prompt Construction</h3>
+<h4 id="checkpoint-5600">Checkpoint-5600</h4>
+<h5 id="11-dataset-at-1000-samples-numeric-input-enabled_18">1:1 Dataset at 1000 samples &amp; numeric input enabled</h5>
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 521 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.836
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.99      0.66      0.79       476
+
+    accuracy                           0.84      1000
+   macro avg       0.88      0.83      0.83      1000
+weighted avg       0.87      0.84      0.83      1000
+
+SIC (Significance Improvement Characteristic): 8.7460
+</code></pre></div>
+
+<h5 id="110-dataset-at-8000-samples-numeric-input-enabled_17">1:10 Dataset at 8000 samples &amp; numeric input enabled</h5>
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7192 out of 7250
+Number of correct signal predictions: 508 out of 750
+Validation Accuracy: 0.9625
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.90      0.68      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.93      0.83      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+
+SIC (Significance Improvement Characteristic): 7.5728
+</code></pre></div>
+
+<h5 id="black-box-1-dataset-at-8000-samples-on-original-ratio-numeric-input-enabled_16">Black-box 1 Dataset at 8000 samples on original ratio &amp; numeric input enabled</h5>
+<div class="codehilite"><pre><span></span><code>Number of correct background predictions: 7844 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.980875
+All predictions classified as &#39;signal&#39; or &#39;background&#39;.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.04        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+
+SIC (Significance Improvement Characteristic): 2.0244
+</code></pre></div>
+
+<p>Overall model performance has improved compared to previous attempts. Model is able to keep its language modeling capabilities <strong>partially</strong> intact. It is generating plausible continuation text after classification answer, but sometimes it still collapses to just "background" or "signal" repeatedly. I think with more training this can be improved further.</p>
+<h2 id="2025-11-09">2025-11-09</h2>
+<p>I decided to build an interactive demo for the current best model (checkpoint-5600) to see how it performs on user provided inputs. I created a simple Gradio interface to test the model interactively.</p>
+<p>I observed that model loses most of its language capabilities after classification based fine-tuning. It is able to generate plausible continuation text only for a few tokens before collapsing to "background" or "signal" repeatedly. So I decided to investigate further ways to disable LoRA deltas during generation after classification answer is produced. This way base model's language capabilities can be preserved better.</p>
+<p>Furthermore I tried to give a tool for the model itself to call, which will enable LoRA for single token classification answer generation, then disable LoRA for the rest of the generation. This way model can use its base language modeling capabilities for continuation text generation.</p>
+<h2 id="2025-11-11">2025-11-11</h2>
+<h3 id="reality-over-supervised-fine-tuning">Reality over Supervised Fine-tuning</h3>
+<p>When trying to perfect my current approach I was doing a lot of reading about anomaly detection over LHC datasets. I found that more advancements on anomaly detection were done over LHCO Olympics 2020 challenge.<sup id="fnref2:1"><a class="footnote-ref" href="#fn:1">1</a></sup> I focused on one particular approach that used weakly-supervised learning. Namely CATHODE (classifying anomalies through outer density estimation).<sup id="fnref:6"><a class="footnote-ref" href="#fn:6">6</a></sup></p>
+<p>This approach actually fixed the primary problem with the supervised fine tuning. That I don't have to fine tune the model for each possible signal type. Instead I can train the model to learn the background-signal density difference and use that to identify anomalies in the data. Doing what is called a bump-hunt.</p>
+<p>This intrigued me because this approach as a tool to a LLM could be very powerful. Which actually gets close to my objective or using agentic LLMs for anomaly detection. There is a paper called "Agents of Discovery: Language Models as Autonomous Scientific Investigators".<sup id="fnref2:5"><a class="footnote-ref" href="#fn:5">5</a></sup> Which discusses using LLMs as autonomous scientific investigators. But in their approach they use ChatGPT as a code generator and try to run those codes to analyze datasets. Which is not very deterministic. </p>
+<p>Instead I am thinking that I can write the tools manually and have the LLMs use those tools to analyze datasets. So it is a pipeline of deterministic tools with LLM orchestrating the process. Rather than LLM doing the analysis itself. Which is actually using a lot GPU time and forgetting the most strong point of LLM, language understanding and reasoning.</p>
+<p>I will pause my current supervised fine-tuning experiments and start working on implementing CATHODE as a tool for LLMs. This way I can have a more generalizable approach to anomaly detection in LHC datasets. But before changing direction I should reach out to my thesis advisor and take his opinion on this new approach. </p>
+<p>Which makes me think, maybe I should write a second interim report about my findings.</p>
 <div class="footnote">
 <hr />
 <ol>
 <li id="fn:1">
-<p><a href="https://lhco2020.github.io/homepage/">LHC Olympics 2020 Homepage</a>&#160;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">&#8617;</a></p>
+<p><a href="https://lhco2020.github.io/homepage/">LHC Olympics 2020 Homepage</a>&#160;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">&#8617;</a><a class="footnote-backref" href="#fnref2:1" title="Jump back to footnote 1 in the text">&#8617;</a></p>
 </li>
 <li id="fn:4">
 <p><a href="https://huggingface.co/docs/transformers/en/index">Hugging Face Transformers</a>&#160;<a class="footnote-backref" href="#fnref:4" title="Jump back to footnote 2 in the text">&#8617;</a></p>
@@ -2342,7 +2528,10 @@ SIC (Significance Improvement Characteristic): 0.0000
 <p><a href="https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3">Mistral-7B-Instruct-v0.3</a>&#160;<a class="footnote-backref" href="#fnref:3" title="Jump back to footnote 4 in the text">&#8617;</a><a class="footnote-backref" href="#fnref2:3" title="Jump back to footnote 4 in the text">&#8617;</a><a class="footnote-backref" href="#fnref3:3" title="Jump back to footnote 4 in the text">&#8617;</a></p>
 </li>
 <li id="fn:5">
-<p><a href="https://arxiv.org/abs/2509.08535">Agents of Discovery</a>&#160;<a class="footnote-backref" href="#fnref:5" title="Jump back to footnote 5 in the text">&#8617;</a></p>
+<p><a href="https://arxiv.org/abs/2509.08535">Agents of Discovery</a>&#160;<a class="footnote-backref" href="#fnref:5" title="Jump back to footnote 5 in the text">&#8617;</a><a class="footnote-backref" href="#fnref2:5" title="Jump back to footnote 5 in the text">&#8617;</a></p>
+</li>
+<li id="fn:6">
+<p><a href="https://journals.aps.org/prd/abstract/10.1103/PhysRevD.106.055006">CATHODE Paper</a>&#160;<a class="footnote-backref" href="#fnref:6" title="Jump back to footnote 6 in the text">&#8617;</a></p>
 </li>
 </ol>
 </div>
@@ -2975,6 +3164,62 @@ SIC (Significance Improvement Characteristic): 0.0000
             class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
             data-active="false" data-depth="3">
             New Prompt / Label Construction Logic
+        </a>
+        
+        
+
+        
+        <a href="#2025-11-06"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-11-06
+        </a>
+        
+        
+        <a href="#after-adding-continuation-text-to-prompt-label-construction"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After Adding Continuation Text to Prompt &amp; Label Construction
+        </a>
+        
+        
+
+        
+        <a href="#2025-11-08"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-11-08
+        </a>
+        
+        
+        <a href="#after-training-with-continuation-text-prompt-construction"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            After Training with Continuation Text Prompt Construction
+        </a>
+        
+        
+
+        
+        <a href="#2025-11-09"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-11-09
+        </a>
+        
+
+        
+        <a href="#2025-11-11"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="2">
+            2025-11-11
+        </a>
+        
+        
+        <a href="#reality-over-supervised-fine-tuning"
+            class="text-muted-foreground hover:text-foreground data-[active=true]:text-foreground text-[0.8rem] no-underline transition-colors data-[depth=3]:pl-4 data-[depth=4]:pl-6"
+            data-active="false" data-depth="3">
+            Reality over Supervised Fine-tuning
         </a>
         
         
