@@ -12,14 +12,16 @@ theme:
     macros: # example of macros
       "\\RR": "\\mathbb{R}" 
       "\\dx": "\\mathrm{d}x"
-  show_datetime: false 
+  show_datetime: false
 
 markdown_extensions:
-  - codehilite
+  - codehilite:
+      guess_lang: false
   - pymdownx.arithmatex:
       generic: true # required to work with shadcn theme
   - pymdownx.blocks.caption
   - footnotes
+  - admonition
 
 extra_css:
   - css/custom.css

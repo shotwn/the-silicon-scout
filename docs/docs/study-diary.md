@@ -1899,6 +1899,203 @@ Finally, I modified the validation script to optionally ask the model for explan
 This will be tonight's training run. I will validate at checkpoint-2200 again if all looks good.
 
 
+## 2025-11-06
+### After Adding Continuation Text to Prompt & Label Construction
+I ran the validations for checkpoint-2200. Good news is the model is able to keep its language modeling capabilities intact. It is generating plausible continuation text after classification answer. 
+
+Bad news is that automated caching for the created "explanation" prompts was not saved properly. With current setup, generating explanation prompts takes a long time because it has to run the model for each sample. Not to mention the model has LoRA + NFA modifications which can make the answer different than base model. So I had to run the explanation prompt generation again and save the cache this time.
+
+Also because I saw some repetition in the generated explanations, I increased the diversity of the explanation prompts by adding more "creativity" to the generation request and increased number of data samples with clarification 
+
+```python
+# Following settings help increase variability
+do_sample=True, # enable sampling
+temperature=0.9, # moderate temperature for diversity, not too high
+top_p=0.9, # nucleus sampling, keep top 90% prob mass
+repetition_penalty=1.1 # slight penalty to discourage repetition, helps with longer outputs
+```
+/// caption
+These settings are guessed based on prior experience. I did not do a systematic hyperparameter search. 
+They can be further optimized in the future.
+///
+
+#### Some Examples of Generated Explanations
+```
+[INST] Evaluate this event: is it more consistent with a 'signal' or a 'background'?
+jets:
+  jet1: P_T=1330.1609666288 eta=-0.3387912623 phi=2.1222351469 E=1417.2583626610 m=168.2873433972 n_particles=38 P_T_lead=374.6896057129
+    dR_jet2=3.12
+  jet2: P_T=1360.1852338307 eta=-0.2880017591 phi=-0.9989003772 E=1485.8176136533 m=446.9935020831 n_particles=103 P_T_lead=274.8609619141
+    dR_jet1=3.12
+n_particles: 174 M_jj= 615.280845480314[/INST][TOOL_RESULTS] {"content": {"result": "<JET_FEATURES>"}, "call_id": "qbmcru2q3"}[/TOOL_RESULTS] background</s>[INST] Clarify the previous classification.[/INST] The previous classification indicated that the provided data is more likely to be classified as "background" rather than a "signal". This classification is based on the properties of high-energy physics events, where signals are typically characterized by specific patterns and interactions not commonly observed in normal (or background) processes. In this case, having a large number of particles (174) and a high total energy release (M_jj = 615.28 GeV), but no unusual characteristics in the individual jets (jet1 and jet2), suggests that this event might be an example of</s>
+```
+
+- **User:** Evaluate this event: is it more consistent with a 'signal' or a 'background'?
+- **Tool Response:** <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)
+- **Assistant:** background
+- **User:** Clarify the previous classification.
+- **Assistant:** The previous classification indicated that the provided data is more likely to be classified as "background" rather than a "signal". This classification is based on the properties of high-energy physics events, where signals are typically characterized by specific patterns and interactions not commonly observed in normal (or background) processes. In this case, having a large number of particles (174) and a high total energy release (M_jj = 615.28 GeV), but no unusual characteristics in the individual jets (jet1 and jet2), suggests that this event might be an example of (hits token limit)
+
+!!! note "Note<br>"
+    Even though the explanation is cut off due to token limit, after training it can continue generating plausible text. So I think this is working as intended.
+
+
+<hr>
+
+```
+[INST] Predict whether this event should be categorized as 'signal' or 'background'.
+jets:
+  jet1: P_T=1306.8708945102 eta=-0.5756262992 phi=1.9975505172 E=1530.5868056895 m=59.5303337297 n_particles=23 P_T_lead=728.5612792969
+n_particles: 151 M_jj= 59.530333729687[/INST]
+
+[TOOL_RESULTS] {"content": {"result": "<JET_FEATURES>"}, "call_id": "7hqg1y11k"}[/TOOL_RESULTS] 
+
+background</s>
+
+[INST] Please justify your classification.[/INST] 
+
+The classification of the event as 'background' is based on the properties of the jet and number of particles, specifically the transverse momentum (P_T) of the leading jet (jet1), which is lower than typical signals in high energy physics experiments. In general, higher values of P_T are expected for signal events compared to background events. Additionally, the total mass of the two jets (M_jj) is not unusually high for a QCD multijet background process. Therefore, it is more likely that this event represents a common background process rather than a signal of</s>
+```
+/// caption
+This time I added newlines to separate the tool response and assistant message for clarity. Normally these would not be present in the actual prompt.
+///
+
+- **User:** Predict whether this event should be categorized as 'signal' or 'background'.
+- **Tool Response:** <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)
+- **Assistant:** background
+- **User:** Please justify your classification.
+- **Assistant:** The classification of the event as 'background' is based on the properties of the jet and number of particles, specifically the transverse momentum (P_T) of the leading jet (jet1), which is lower than typical signals in high energy physics experiments. In general, higher values of P_T are expected for signal events compared to background events. Additionally, the total mass of the two jets (M_jj) is not unusually high for a QCD multijet background process. Therefore, it is more likely that this event represents a common background process rather than a signal of (hits token limit)
+
+<hr>
+
+```
+[INST] From the given jet information, determine if the event is a 'signal' or 'background'.
+jets:
+  jet1: P_T=1337.8710692594 eta=0.0130336148 phi=1.8803767721 E=1342.4080450443 m=108.8865690582 n_particles=27 P_T_lead=635.6193237305
+    dR_jet2=3.07
+  jet2: P_T=1418.7981293410 eta=-0.3607224133 phi=-1.3569014380 E=1516.1929487774 m=111.1833726481 n_particles=37 P_T_lead=334.2713928223
+    dR_jet1=3.07
+n_particles: 136 M_jj= 220.06994170632814[/INST]
+
+[TOOL_RESULTS] {"content": {"result": "<JET_FEATURES>"}, "call_id": "s1xiwg459"}[/TOOL_RESULTS] 
+
+background</s>
+
+[INST] Could you explain your reasoning ?[/INST] 
+
+The event is considered as background since neither of the jets have a high transverse momentum ($P_T$) or high mass ($M_{jj}$) which are typical characteristics of signals in physics analyses. In this case, both jets have $P_T$ values less than 1 TeV and their invariant mass ($M_{jj}$) is around 220 GeV, which is lower than the mass of many signal particles. Additionally, the number of particles ($n\_particles$) in each jet is also not unusually high. Therefore, based on these observables</s>
+```
+- **User:** From the given jet information, determine if the event is a 'signal' or 'background'.
+- **Tool Response:** <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)
+- **Assistant:** background
+- **User:** Could you explain your reasoning ?
+- **Assistant:** The event is considered as background since neither of the jets have a high transverse momentum ($P_T$) or high mass ($M_{jj}$) which are typical characteristics of signals in physics analyses. In this case, both jets have $P_T$ values less than 1 TeV and their invariant mass ($M_{jj}$) is around 220 GeV, which is lower than the mass of many signal particles. Additionally, the number of particles ($n\_particles$) in each jet is also not unusually high. Therefore, based on these observables (hits token limit)
+
+<hr>
+
+```
+[INST] Is this event a 'signal' or a 'background'?
+jets:
+  jet1: P_T=1570.2972062072 eta=-0.2993632305 phi=-2.1183841628 E=1643.4775804222 m=86.7211170908 n_particles=22 P_T_lead=460.1471252441
+    dR_jet2=3.25
+  jet2: P_T=1708.0966426003 eta=0.5889456367 phi=1.0398714940 E=2075.1942300695 m=504.2784400247 n_particles=53 P_T_lead=329.3392333984
+    dR_jet1=3.25
+n_particles: 96 M_jj= 590.9995571155307[/INST]
+
+[TOOL_RESULTS] {"content": {"result": "<JET_FEATURES>"}, "call_id": "9oj8z8l04"}[/TOOL_RESULTS] 
+
+signal</s>
+
+[INST] Can you provide more details ?[/INST] 
+
+The provided data represents two jets (particles produced in the collision) and their properties such as transverse momentum (P_T), rapidity (eta), azimuthal angle (phi), energy (E), mass (m), number of particles (n_particle), and transverse distance from each other (dR_jet1, dR_jet2). The variable M_jj refers to the invariant mass of the two jets. In high-energy physics, these variables are used to classify events as signals (new physics processes) or backgrounds (known</s>
+```
+
+- **User:** Is this event a 'signal' or a 'background'?
+- **Tool Response:** <JET_FEATURES> (This is where the numeric feature adapter is inserting the jet features)
+- **Assistant:** signal
+- **User:** Can you provide more details ?
+- **Assistant:** The provided data represents two jets (particles produced in the collision) and their properties such as transverse momentum (P_T), rapidity (eta), azimuthal angle (phi), energy (E), mass (m), number of particles (n_particle), and transverse distance from each other (dR_jet1, dR_jet2). The variable M_jj refers to the invariant mass of the two jets. In high-energy physics, these variables are used to classify events as signals (new physics processes) or backgrounds (known (hits token limit)
+
+## 2025-11-08
+### After Training with Continuation Text Prompt Construction
+#### Checkpoint-5600
+##### 1:1 Dataset at 1000 samples & numeric input enabled
+```
+Number of correct background predictions: 521 out of 524
+Number of correct signal predictions: 315 out of 476
+Validation Accuracy: 0.836
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.76      0.99      0.86       524
+      signal       0.99      0.66      0.79       476
+
+    accuracy                           0.84      1000
+   macro avg       0.88      0.83      0.83      1000
+weighted avg       0.87      0.84      0.83      1000
+
+SIC (Significance Improvement Characteristic): 8.7460
+```
+
+##### 1:10 Dataset at 8000 samples & numeric input enabled
+```
+Number of correct background predictions: 7192 out of 7250
+Number of correct signal predictions: 508 out of 750
+Validation Accuracy: 0.9625
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       0.97      0.99      0.98      7250
+      signal       0.90      0.68      0.77       750
+
+    accuracy                           0.96      8000
+   macro avg       0.93      0.83      0.88      8000
+weighted avg       0.96      0.96      0.96      8000
+
+SIC (Significance Improvement Characteristic): 7.5728
+```
+
+##### Black-box 1 Dataset at 8000 samples on original ratio & numeric input enabled
+```
+Number of correct background predictions: 7844 out of 7989
+Number of correct signal predictions: 3 out of 11
+Validation Accuracy: 0.980875
+All predictions classified as 'signal' or 'background'.
+              precision    recall  f1-score   support
+
+  background       1.00      0.98      0.99      7989
+      signal       0.02      0.27      0.04        11
+
+    accuracy                           0.98      8000
+   macro avg       0.51      0.63      0.51      8000
+weighted avg       1.00      0.98      0.99      8000
+
+SIC (Significance Improvement Characteristic): 2.0244
+```
+
+Overall model performance has improved compared to previous attempts. Model is able to keep its language modeling capabilities **partially** intact. It is generating plausible continuation text after classification answer, but sometimes it still collapses to just "background" or "signal" repeatedly. I think with more training this can be improved further.
+
+## 2025-11-09
+I decided to build an interactive demo for the current best model (checkpoint-5600) to see how it performs on user provided inputs. I created a simple Gradio interface to test the model interactively.
+
+I observed that model loses most of its language capabilities after classification based fine-tuning. It is able to generate plausible continuation text only for a few tokens before collapsing to "background" or "signal" repeatedly. So I decided to investigate further ways to disable LoRA deltas during generation after classification answer is produced. This way base model's language capabilities can be preserved better.
+
+Furthermore I tried to give a tool for the model itself to call, which will enable LoRA for single token classification answer generation, then disable LoRA for the rest of the generation. This way model can use its base language modeling capabilities for continuation text generation.
+
+## 2025-11-11
+### Reality over Supervised Fine-tuning
+When trying to perfect my current approach I was doing a lot of reading about anomaly detection over LHC datasets. I found that more advancements on anomaly detection were done over LHCO Olympics 2020 challenge.[^1] I focused on one particular approach that used weakly-supervised learning. Namely CATHODE (classifying anomalies through outer density estimation).[^6]
+
+This approach actually fixed the primary problem with the supervised fine tuning. That I don't have to fine tune the model for each possible signal type. Instead I can train the model to learn the background-signal density difference and use that to identify anomalies in the data. Doing what is called a bump-hunt.
+
+This intrigued me because this approach as a tool to a LLM could be very powerful. Which actually gets close to my objective or using agentic LLMs for anomaly detection. There is a paper called "Agents of Discovery: Language Models as Autonomous Scientific Investigators".[^5] Which discusses using LLMs as autonomous scientific investigators. But in their approach they use ChatGPT as a code generator and try to run those codes to analyze datasets. Which is not very deterministic. 
+
+Instead I am thinking that I can write the tools manually and have the LLMs use those tools to analyze datasets. So it is a pipeline of deterministic tools with LLM orchestrating the process. Rather than LLM doing the analysis itself. Which is actually using a lot GPU time and forgetting the most strong point of LLM, language understanding and reasoning.
+
+I will pause my current supervised fine-tuning experiments and start working on implementing CATHODE as a tool for LLMs. This way I can have a more generalizable approach to anomaly detection in LHC datasets. But before changing direction I should reach out to my thesis advisor and take his opinion on this new approach. 
+
+Which makes me think, maybe I should write a second interim report about my findings.
 
 
 
@@ -1909,3 +2106,4 @@ This will be tonight's training run. I will validate at checkpoint-2200 again if
 [^3]: [Mistral-7B-Instruct-v0.3](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3)
 [^4]: [Hugging Face Transformers](https://huggingface.co/docs/transformers/en/index)
 [^5]: [Agents of Discovery](https://arxiv.org/abs/2509.08535)
+[^6]: [CATHODE Paper](https://journals.aps.org/prd/abstract/10.1103/PhysRevD.106.055006)
