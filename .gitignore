@@ -9,3 +9,4 @@ kept_checkpoints/
 additional_datasets/
 docs/site/
 logs/
+processed_lhco_dataset/
