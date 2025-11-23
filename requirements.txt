@@ -6,74 +6,118 @@
 #
 absl-py==2.3.1
     # via tensorboard
-accelerate==1.10.1
+accelerate==1.12.0
     # via peft
+aiofiles==24.1.0
+    # via gradio
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.13.0
+aiohttp==3.13.2
     # via fsspec
 aiosignal==1.4.0
     # via aiohttp
+annotated-doc==0.0.4
+    # via fastapi
+annotated-types==0.7.0
+    # via pydantic
 anyio==4.11.0
-    # via httpx
+    # via
+    #   gradio
+    #   httpx
+    #   starlette
+    #   watchfiles
 attrs==25.4.0
-    # via aiohttp
-awkward==2.8.9
+    # via
+    #   aiohttp
+    #   jsonschema
+    #   referencing
+awkward==2.8.10
     # via
     #   -r requirements.in
     #   fastjet
 awkward-cpp==50
     # via awkward
-bitsandbytes==0.48.1
+backoff==2.2.1
+    # via posthog
+bcrypt==5.0.0
+    # via chromadb
+bitsandbytes==0.48.2
     # via -r requirements.in
 bitsandbytes-windows==0.37.5
     # via -r requirements.in
-blosc2==3.10.1
+blosc2==3.11.1
     # via tables
 bottle==0.13.4
     # via mkdocs-shadcn
-certifi==2025.10.5
+brotli==1.2.0
+    # via gradio
+build==1.3.0
+    # via chromadb
+cachetools==6.2.2
+    # via google-auth
+certifi==2025.11.12
     # via
     #   httpcore
     #   httpx
+    #   kubernetes
     #   requests
 charset-normalizer==3.4.4
     # via requests
-click==8.3.0
-    # via mkdocs
+chromadb==1.3.5
+    # via -r requirements.in
+click==8.3.1
+    # via
+    #   mkdocs
+    #   typer
+    #   uvicorn
 colorama==0.4.6
     # via
+    #   build
     #   click
     #   mkdocs
     #   tqdm
+    #   uvicorn
+coloredlogs==15.0.1
+    # via onnxruntime
 contourpy==1.3.3
     # via matplotlib
 cycler==0.12.1
     # via matplotlib
-datasets==4.2.0
+datasets==4.4.1
     # via -r requirements.in
 dill==0.4.0
     # via
     #   datasets
     #   multiprocess
-fastjet==3.5.1.1
+distro==1.9.0
+    # via posthog
+durationpy==0.10
+    # via kubernetes
+fastapi==0.121.3
+    # via gradio
+fastjet==3.5.1.2
     # via -r requirements.in
+ffmpy==1.0.0
+    # via gradio
 filelock==3.20.0
     # via
     #   datasets
     #   huggingface-hub
     #   torch
     #   transformers
+flatbuffers==25.9.23
+    # via onnxruntime
 fonttools==4.60.1
     # via matplotlib
 frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
-fsspec[http]==2025.9.0
+fsspec[http]==2025.10.0
     # via
     #   awkward
     #   datasets
+    #   gradio-client
     #   huggingface-hub
     #   torch
 ghp-import==2.1.0
@@ -82,49 +126,92 @@ gitdb==4.0.12
     # via gitpython
 gitpython==3.1.45
     # via mkdocs-shadcn
+google-auth==2.43.0
+    # via kubernetes
+googleapis-common-protos==1.72.0
+    # via opentelemetry-exporter-otlp-proto-grpc
+gradio==5.50.0
+    # via -r requirements.in
+gradio-client==1.14.0
+    # via gradio
+groovy==0.1.2
+    # via gradio
 grpcio==1.76.0
-    # via tensorboard
+    # via
+    #   chromadb
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   tensorboard
 h11==0.16.0
-    # via httpcore
-h5py==3.15.0
+    # via
+    #   httpcore
+    #   uvicorn
+h5py==3.15.1
     # via -r requirements.in
 httpcore==1.0.9
     # via httpx
+httptools==0.7.1
+    # via uvicorn
 httpx==0.28.1
-    # via datasets
-huggingface-hub==0.35.3
+    # via
+    #   chromadb
+    #   datasets
+    #   gradio
+    #   gradio-client
+    #   safehttpx
+huggingface-hub==0.36.0
     # via
     #   accelerate
     #   datasets
+    #   gradio
+    #   gradio-client
     #   peft
+    #   sentence-transformers
     #   tokenizers
     #   transformers
+humanfriendly==10.0
+    # via coloredlogs
 idna==3.11
     # via
     #   anyio
     #   httpx
     #   requests
     #   yarl
+importlib-metadata==8.7.0
+    # via opentelemetry-api
+importlib-resources==6.5.2
+    # via chromadb
 jinja2==3.1.6
     # via
+    #   gradio
     #   mkdocs
     #   torch
 joblib==1.5.2
     # via scikit-learn
+jsonschema==4.25.1
+    # via chromadb
+jsonschema-specifications==2025.9.1
+    # via jsonschema
 kiwisolver==1.4.9
     # via matplotlib
-markdown==3.9
+kubernetes==33.1.0
+    # via chromadb
+markdown==3.10
     # via
     #   mkdocs
     #   pymdown-extensions
     #   tensorboard
+markdown-it-py==4.0.0
+    # via rich
 markupsafe==3.0.3
     # via
+    #   gradio
     #   jinja2
     #   mkdocs
     #   werkzeug
 matplotlib==3.10.7
     # via -r requirements.in
+mdurl==0.1.2
+    # via markdown-it-py
 mergedeep==1.3.4
     # via
     #   mkdocs
@@ -137,6 +224,8 @@ mkdocs-get-deps==0.2.0
     # via mkdocs
 mkdocs-shadcn==0.9.7
     # via -r requirements.in
+mmh3==5.2.0
+    # via chromadb
 mpmath==1.3.0
     # via sympy
 msgpack==1.1.2
@@ -145,9 +234,9 @@ multidict==6.7.0
     # via
     #   aiohttp
     #   yarl
-multiprocess==0.70.16
+multiprocess==0.70.18
     # via datasets
-ndindex==1.10.0
+ndindex==1.10.1
     # via blosc2
 networkx==3.5
     # via torch
@@ -155,19 +244,22 @@ numexpr==2.14.1
     # via
     #   blosc2
     #   tables
-numpy==2.3.3
+numpy==2.3.5
     # via
     #   accelerate
     #   awkward
     #   awkward-cpp
     #   bitsandbytes
     #   blosc2
+    #   chromadb
     #   contourpy
     #   datasets
     #   fastjet
+    #   gradio
     #   h5py
     #   matplotlib
     #   numexpr
+    #   onnxruntime
     #   pandas
     #   peft
     #   scikit-learn
@@ -177,15 +269,51 @@ numpy==2.3.3
     #   torchvision
     #   transformers
     #   vector
+oauthlib==3.3.1
+    # via
+    #   kubernetes
+    #   requests-oauthlib
+onnxruntime==1.23.2
+    # via chromadb
+opentelemetry-api==1.38.0
+    # via
+    #   chromadb
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp-proto-common==1.38.0
+    # via opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-exporter-otlp-proto-grpc==1.38.0
+    # via chromadb
+opentelemetry-proto==1.38.0
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-sdk==1.38.0
+    # via
+    #   chromadb
+    #   opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-semantic-conventions==0.59b0
+    # via opentelemetry-sdk
+orjson==3.11.4
+    # via
+    #   chromadb
+    #   gradio
+overrides==7.7.0
+    # via chromadb
 packaging==25.0
     # via
     #   accelerate
     #   awkward
     #   bitsandbytes
+    #   build
     #   datasets
+    #   gradio
+    #   gradio-client
     #   huggingface-hub
     #   matplotlib
     #   mkdocs
+    #   onnxruntime
     #   peft
     #   tables
     #   tensorboard
@@ -195,28 +323,36 @@ pandas==2.3.3
     # via
     #   -r requirements.in
     #   datasets
+    #   gradio
 pathspec==0.12.1
     # via mkdocs
-peft==0.17.1
+peft==0.18.0
     # via -r requirements.in
 pillow==11.3.0
     # via
+    #   gradio
     #   matplotlib
+    #   sentence-transformers
     #   tensorboard
     #   torchvision
 platformdirs==4.5.0
     # via
     #   blosc2
     #   mkdocs-get-deps
+posthog==5.4.0
+    # via chromadb
 propcache==0.4.1
     # via
     #   aiohttp
     #   yarl
-protobuf==6.32.1
+protobuf==6.33.1
     # via
     #   -r requirements.in
+    #   googleapis-common-protos
+    #   onnxruntime
+    #   opentelemetry-proto
     #   tensorboard
-psutil==7.1.0
+psutil==7.1.3
     # via
     #   accelerate
     #   peft
@@ -224,63 +360,150 @@ py-cpuinfo==9.0.0
     # via
     #   blosc2
     #   tables
-pyarrow==21.0.0
+pyarrow==22.0.0
     # via datasets
-pymdown-extensions==10.16.1
+pyasn1==0.6.1
+    # via
+    #   pyasn1-modules
+    #   rsa
+pyasn1-modules==0.4.2
+    # via google-auth
+pybase64==1.4.2
+    # via chromadb
+pydantic==2.12.3
+    # via
+    #   chromadb
+    #   fastapi
+    #   gradio
+pydantic-core==2.41.4
+    # via pydantic
+pydub==0.25.1
+    # via gradio
+pygments==2.19.2
+    # via
+    #   -r requirements.in
+    #   rich
+pymdown-extensions==10.17.1
     # via
     #   -r requirements.in
     #   mkdocs-shadcn
+pymupdf==1.26.6
+    # via pymupdf4llm
+pymupdf4llm==0.2.2
+    # via -r requirements.in
 pyparsing==3.2.5
     # via matplotlib
+pypika==0.48.9
+    # via chromadb
+pyproject-hooks==1.2.0
+    # via build
+pyreadline3==3.5.4
+    # via humanfriendly
 python-dateutil==2.9.0.post0
     # via
     #   ghp-import
+    #   kubernetes
     #   matplotlib
     #   pandas
+    #   posthog
+python-dotenv==1.2.1
+    # via uvicorn
+python-multipart==0.0.20
+    # via gradio
 pytz==2025.2
     # via pandas
 pyyaml==6.0.3
     # via
     #   accelerate
+    #   chromadb
     #   datasets
+    #   gradio
     #   huggingface-hub
+    #   kubernetes
     #   mkdocs
     #   mkdocs-get-deps
     #   peft
     #   pymdown-extensions
     #   pyyaml-env-tag
     #   transformers
+    #   uvicorn
 pyyaml-env-tag==1.1
     # via mkdocs
-regex==2025.9.18
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+regex==2025.11.3
     # via transformers
 requests==2.32.5
     # via
     #   blosc2
     #   datasets
     #   huggingface-hub
+    #   kubernetes
+    #   posthog
+    #   requests-oauthlib
     #   transformers
-safetensors==0.6.2
+requests-oauthlib==2.0.0
+    # via kubernetes
+rich==14.2.0
+    # via
+    #   chromadb
+    #   typer
+rpds-py==0.29.0
+    # via
+    #   jsonschema
+    #   referencing
+rsa==4.9.1
+    # via google-auth
+ruff==0.14.6
+    # via gradio
+safehttpx==0.1.7
+    # via gradio
+safetensors==0.7.0
     # via
     #   accelerate
     #   peft
     #   transformers
 scikit-learn==1.7.2
+    # via
+    #   -r requirements.in
+    #   sentence-transformers
+scipy==1.16.3
+    # via
+    #   scikit-learn
+    #   sentence-transformers
+semantic-version==2.10.0
+    # via gradio
+sentence-transformers==5.1.2
     # via -r requirements.in
-scipy==1.16.2
-    # via scikit-learn
 sentencepiece==0.2.1
     # via -r requirements.in
+shellingham==1.5.4
+    # via typer
 six==1.17.0
-    # via python-dateutil
+    # via
+    #   kubernetes
+    #   posthog
+    #   python-dateutil
 smmap==5.0.2
     # via gitdb
 sniffio==1.3.1
     # via anyio
+starlette==0.50.0
+    # via
+    #   fastapi
+    #   gradio
 sympy==1.14.0
-    # via torch
+    # via
+    #   onnxruntime
+    #   torch
 tables==3.10.2
     # via -r requirements.in
+tabulate==0.9.0
+    # via pymupdf4llm
+tenacity==9.1.2
+    # via chromadb
 tensorboard==2.20.0
     # via -r requirements.in
 tensorboard-data-server==0.7.2
@@ -288,48 +511,93 @@ tensorboard-data-server==0.7.2
 threadpoolctl==3.6.0
     # via scikit-learn
 tokenizers==0.22.1
-    # via transformers
+    # via
+    #   chromadb
+    #   transformers
+tomlkit==0.13.3
+    # via gradio
 torch @ https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-win_amd64.whl
     # via
     #   -r requirements.in
     #   accelerate
     #   bitsandbytes
     #   peft
+    #   sentence-transformers
     #   torchvision
 torchvision @ https://download.pytorch.org/whl/cu129/torchvision-0.23.0%2Bcu129-cp312-cp312-win_amd64.whl
     # via -r requirements.in
 tqdm==4.67.1
     # via
+    #   chromadb
     #   datasets
     #   huggingface-hub
     #   peft
+    #   sentence-transformers
     #   transformers
 transformers==4.57.1
     # via
     #   -r requirements.in
     #   peft
+    #   sentence-transformers
+typer==0.20.0
+    # via
+    #   chromadb
+    #   gradio
 typing-extensions==4.15.0
     # via
     #   aiosignal
     #   anyio
+    #   chromadb
+    #   fastapi
+    #   gradio
+    #   gradio-client
     #   grpcio
     #   huggingface-hub
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+    #   pydantic
+    #   pydantic-core
+    #   referencing
+    #   sentence-transformers
+    #   starlette
     #   tables
     #   torch
+    #   typer
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via pydantic
 tzdata==2025.2
     # via pandas
 urllib3==2.5.0
-    # via requests
-vector==1.6.3
+    # via
+    #   kubernetes
+    #   requests
+uvicorn[standard]==0.38.0
+    # via
+    #   chromadb
+    #   gradio
+vector==1.7.0
     # via fastjet
 watchdog==6.0.0
     # via mkdocs
+watchfiles==1.1.1
+    # via uvicorn
+websocket-client==1.9.0
+    # via kubernetes
+websockets==15.0.1
+    # via
+    #   gradio-client
+    #   uvicorn
 werkzeug==3.1.3
     # via tensorboard
 xxhash==3.6.0
     # via datasets
 yarl==1.22.0
     # via aiohttp
+zipp==3.23.0
+    # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

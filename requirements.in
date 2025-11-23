@@ -16,6 +16,7 @@ bitsandbytes
 protobuf
 sentencepiece
 scikit-learn
+pandas
 
 # For documentation generation
 mkdocs
@@ -25,3 +26,14 @@ pygments
 
 # For training monitoring
 tensorboard
+
+# For interactive chat interface
+# Version 6 is broken so far, use <6.0.0
+gradio ~= 5.50.0, <6.0.0
+
+# Read PDF files
+pymupdf4llm
+
+# For vector database
+chromadb
+sentence-transformers

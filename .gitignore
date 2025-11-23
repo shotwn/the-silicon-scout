@@ -10,3 +10,5 @@ additional_datasets/
 docs/site/
 logs/
 processed_lhco_dataset/
+fastjet_output/
+articles/
