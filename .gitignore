@@ -12,3 +12,5 @@ logs/
 processed_lhco_dataset/
 fastjet_output/
 articles/
+lacathode_input_data/
+rag_db/
