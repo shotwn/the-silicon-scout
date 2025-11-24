@@ -11,7 +11,7 @@ import os
 from argparse import ArgumentParser
 
 arg_parser = ArgumentParser()
-arg_parser.add_argument("--input-file", type=str, default="events_anomalydetection_v2.h5", help="Path to the HDF5 file containing event data.")
+arg_parser.add_argument("--input_file", type=str, default="events_anomalydetection_v2.h5", help="Path to the HDF5 file containing event data.")
 arg_parser.add_argument("--numpy_read_chunk_size", type=int, default=100000, help="Number of rows to read at a time.")
 arg_parser.add_argument("--size_per_row", type=int, default=2100, help="Number of data columns per row (excluding label).")
 arg_parser.add_argument("--output_dir", type=str, default="fastjet-output", help="Directory to store output files.")
@@ -141,6 +141,7 @@ def process_events_chunk(df, start_index=0):
         
         jets = []
         total_invariant_mass = np.float64(0.0)
+        dR = 0 # Delta R between the two leading jets
         for j, jet in enumerate(inclusive_jets):
             jet_constituents = constituent_array[j]
 
@@ -161,6 +162,10 @@ def process_events_chunk(df, start_index=0):
             })
             total_invariant_mass += jet.m
 
+            if j == 1:
+                # Calculate delta R between the two leading jets
+                dR = inclusive_jets[0].deltaR(inclusive_jets[1])
+
             if j >= 1:
                 break  # Only consider first two leading jets for dijet system
 
@@ -168,6 +173,7 @@ def process_events_chunk(df, start_index=0):
         additional_info = {
             "n_particles": cluster.n_particles(),
             "m_jj": total_invariant_mass, # Invariant mass of the dijet system
+            "dR": dR, # Delta R between the two leading jets
         }
 
         events_list_to_append = signal_events if is_signal == 1 else background_events
@@ -256,7 +262,12 @@ if __name__ == "__main__":
                     outfile.write(line)
             os.remove(fname) # Remove the chunk file after merging
 
-print(f"Data processing with FastJet completed. Final output files are in the {args.output_dir} directory."
-      f" Signal events in signal_events.jsonl and background events in background_events.jsonl."
-      f" Example data format:"
-      f' {{"type": "signal", "jets": [{{"px": ..., "py": ..., "pz": ..., "m": ..., "n_particles": ..., "P_T_lead": ..., "tau_1": ..., "tau2": ..., "tau_3": ...}}], "n_particles": ..., "m_jj": ...}}')
+
+    print(
+        "<tool_result>"
+        f"Data processing with FastJet completed."
+        f" Signal events are in {args.output_dir}/signal_events.jsonl and background events are in {args.output_dir}/background_events.jsonl."
+        f" Example data format:"
+        ' {{"type": "signal", "jets": [{{"px": ..., "py": ..., "pz": ..., "m": ..., "n_particles": ..., "P_T_lead": ..., "tau_1": ..., "tau2": ..., "tau_3": ...}}], "n_particles": ..., "m_jj": ..., "dR": ...}}'
+        "</tool_result>"
+    )
