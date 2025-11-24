@@ -34,6 +34,6 @@ gradio ~= 5.50.0, <6.0.0
 # Read PDF files
 pymupdf4llm
 
-# For vector database
+# For vector database (RAG)
 chromadb
 sentence-transformers
