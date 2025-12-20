@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import numpy as np
 import json
 import os
+import lacathode_event_dictionary
 
 """
 Argument parser for running the script from command line
@@ -30,6 +31,12 @@ parser.add_argument('--training_fraction', type=float, default=0.33,
 
 parser.add_argument('--validation_fraction', type=float, default=0.33,
                     help='Fraction of data to use for validation')
+
+# For defining the signal region (SR) window
+parser.add_argument('--min_mass', type=float, default=3.3,
+                    help='Minimum mass for Signal Region (SR) window in TeV')
+parser.add_argument('--max_mass', type=float, default=3.7,
+                    help='Maximum mass for Signal Region (SR) window in TeV')
 
 args = parser.parse_args()
 
@@ -84,6 +91,11 @@ class LaCATHODEPreperation:
 
         self.run_mode = args.get('run_mode', 'training')  # 'training' or 'inference'
 
+        self.min_mass = args.get('min_mass', 3.3)
+        self.max_mass = args.get('max_mass', 3.7)
+
+        self.feature_dictionary = lacathode_event_dictionary.tags
+
     def load_to_numpy(self, input_file, label_type='background', normalize=True):
         """
         Load data from jsonl file into numpy array
@@ -101,7 +113,7 @@ class LaCATHODEPreperation:
                 num_events = sum(1 for _ in f)
 
             # Create numpy array with the correct shape
-            numpy_array = np.empty((num_events, 27))
+            numpy_array = np.empty((num_events, len(lacathode_event_dictionary.tags)))
 
             event_index = 0
             with open(input_file, 'r') as f:
@@ -143,8 +155,14 @@ class LaCATHODEPreperation:
                     # pxj1, pyj1, pzj1, mj1, n_particles_j1, P_T_lead_j1, tau1_j1, tau2_j1, tau3_j1, tau4_j1,
                     # pxj2, pyj2, pzj2, mj2, n_particles_j2, P_T_lead_j2, tau1_j2, tau2_j2, tau3_j2, tau4_j2
                     # n_particles, m_jj, dR
-                    # Dimensions: (number of events, 20)
+                    # Dimensions: (number of events, 27)
+                    # See feature_dictionary for order
                     features = [
+                        # Event-level features
+                        mjj,
+                        event.get('n_particles', 0),
+                        event.get('dR', 0.0),
+                        mass_diff,
                         # Light jet
                         jets[0].get('px', 0.0),
                         jets[0].get('py', 0.0),
@@ -169,12 +187,9 @@ class LaCATHODEPreperation:
                         jets[1].get('tau_3', 0.0),
                         jets[1].get('tau_4', 0.0),
                         tau2_over_tau1_j2,
-                        # Event-level features
-                        event.get('n_particles', 0),
-                        mjj,
-                        event.get('dR', 0.0),
-                        mass_diff,
-                        1.0 if label_type == 'signal' else 0.0
+
+                        # Label: 0 for background, 1 for signal
+                        1.0 if label_type == 'signal' else 0.0,
                     ]
 
                     numpy_array[event_index, :] = features
@@ -210,6 +225,20 @@ class LaCATHODEPreperation:
 
         return train_set, val_set, test_set
     
+    def separate_SB_SR(self, data):
+        """
+        Splits data into Signal Region (Inner) and Sideband (Outer)
+        based on m_jj window.
+        Assumes m_jj is at index 0.
+        """
+        mjj_col = 0
+        
+        # Create mask: True if inside the window (SR/Inner), False if outside (SB/Outer)
+        innermask = (data[:, mjj_col] > self.min_mass) & (data[:, mjj_col] < self.max_mass)
+        outermask = ~innermask
+        
+        return data[innermask], data[outermask]
+    
     def save_numpy(self, data_array, output_file):
         """
         Save numpy array to file
@@ -219,60 +248,112 @@ class LaCATHODEPreperation:
 
         np.save(output_file, data_array)
 
+    def graph_all_features(self, data_array, data_label='data'):
+        """
+        Graph all features for visualization/debugging
+        """
+        import matplotlib.pyplot as plt
+
+        if not os.path.exists('graphs'):
+            os.makedirs('graphs')
+
+        num_features = data_array.shape[1]
+        columns = 4
+        rows = (num_features + columns - 1) // columns
+        plt, axs = plt.subplots(rows, columns, figsize=(columns * 8, rows * 4))
+        plt.tight_layout(pad=3.0) # Makes the layout less cramped
+        for i in range(num_features):
+            axs[i // columns][i % columns].hist(data_array[:, i], bins=50, alpha=0.7)
+            axs[i // columns][i % columns].set_title(f' {self.feature_dictionary[i]} Distribution ({data_label})')
+            axs[i // columns][i % columns].set_xlabel(f'{self.feature_dictionary[i]} Value')
+            axs[i // columns][i % columns].set_ylabel('Counts')
+            axs[i // columns][i % columns].grid()
+
+        plt.savefig(f'graphs/feature_distribution_{data_label}.png')
+
     def training_mode(self):
         """
-        For training and validation, we need to create training, validation, and test sets
+        MODE 1: Proving the Model (Training/Validation/Testing)
+        Uses labeled Background and Signal files.
         """
+        print("Running in TRAINING mode (Proving the model)...")
         if not self.input_background or not self.input_signal:
-            raise ValueError("Both input_background and input_signal must be provided for training mode.")
-        
-        background_data = self.load_to_numpy(self.input_background)
-        signal_data = self.load_to_numpy(self.input_signal, label_type='signal')
+            raise ValueError("input_background and input_signal required for training mode.")
 
-        combined_data = np.vstack((background_data, signal_data))
-        combined_data = self.shuffle_and_split(
-            combined_data, 
+        # Load
+        bg = self.load_to_numpy(self.input_background, label_type='background')
+        sig = self.load_to_numpy(self.input_signal, label_type='signal')
+        
+        # Combine and Shuffle
+        combined = np.vstack((bg, sig))
+
+        # Shuffle and Split
+        # This handles the random seed, shuffling, and index slicing
+        train_set, val_set, test_set = self.shuffle_and_split(
+            combined, 
             train_fraction=self.training_fraction, 
             val_fraction=self.validation_fraction
         )
 
-        train_set, val_set, test_set = combined_data
+        # Separate SR/SB (Inner/Outer)
+        # We need "Outer" to train the model, and "Inner" to test it.
+        tr_in, tr_out = self.separate_SB_SR(train_set)
+        val_in, val_out = self.separate_SB_SR(val_set)
+        test_in, test_out = self.separate_SB_SR(test_set)
 
-        self.save_numpy(train_set, os.path.join(self.output_dir, 'train.npy'))
-        self.save_numpy(val_set, os.path.join(self.output_dir, 'validation.npy'))
-        self.save_numpy(test_set, os.path.join(self.output_dir, 'test.npy'))
+        # Save standard CATHODE files
+        self.save_numpy(tr_out, os.path.join(self.output_dir, 'outerdata_train.npy'))
+        self.save_numpy(val_out, os.path.join(self.output_dir, 'outerdata_val.npy'))
+        self.save_numpy(test_out, os.path.join(self.output_dir, 'outerdata_test.npy'))
 
-        prompt_output = (
-            "<tool_result>"
-            f"Training, validation, and test sets created and saved.\n"
-            f"Training set shape: {train_set.shape}\n"
-            f"Validation set shape: {val_set.shape}\n"
-            f"Test set shape: {test_set.shape}\n"
-            "</tool_result>"
-        )
+        self.save_numpy(tr_in, os.path.join(self.output_dir, 'innerdata_train.npy'))
+        self.save_numpy(val_in, os.path.join(self.output_dir, 'innerdata_val.npy'))
 
-        print(prompt_output)
+        # Graph features for debugging
+        self.graph_all_features(tr_out, data_label='outerdata_train')
+        self.graph_all_features(val_out, data_label='outerdata_val')
+        self.graph_all_features(test_out, data_label='outerdata_test')
+        self.graph_all_features(tr_in, data_label='innerdata_train')
+        self.graph_all_features(val_in, data_label='innerdata_val')
+        self.graph_all_features(test_in, data_label='innerdata_test')
+        
+        # This is the file we use to "Prove" the model (calculate ROC/SIC)
+        self.save_numpy(test_in, os.path.join(self.output_dir, 'innerdata_test.npy')) 
+
+        print(f"Saved training files: train/val/test splits of innerdata_*.npy and outerdata_*.npy")
 
     def inference_mode(self):
         """
-        This is for inference mode, primarily when the data is unlabeled (real data)
+        MODE 2: Actually Using It (True Inference)
+        Uses one Unlabeled Data file (Real Data).
         """
+        print("Running in INFERENCE mode (Using on real data)...")
         if not self.input_unlabeled:
-            raise ValueError("input_unlabeled must be provided for inference mode.")
-        
-        mixed_data = self.load_to_numpy(self.input_unlabeled)
-        shuffled_data = self.shuffle(mixed_data)
-        
-        self.save_numpy(shuffled_data, os.path.join(self.output_dir, 'inference.npy'))
+            raise ValueError("input_unlabeled required for inference mode.")
 
-        prompt_output = (
-            "<tool_result>"
-            f"Inference set created and saved.\n"
-            f"Inference set shape: {shuffled_data.shape}\n"
-            "</tool_result>"
-        )
+        # Load unlabeled data (Label defaults to 0 usually, or doesn't matter)
+        data = self.load_to_numpy(self.input_unlabeled, label_type='background')
+        
+        # No Train/Test split needed, just shuffle to break any ordering artifacts
+        np.random.seed(self.shuffle_seed)
+        np.random.shuffle(data)
 
-        print(prompt_output)
+        # Separate SR/SB
+        # Even in inference, CATHODE needs the Sideband (Outer) to estimate the background
+        # and the Signal Region (Inner) to look for anomalies.
+        data_inner, data_outer = self.separate_SB_SR(data)
+
+        # Save
+        # 'outerdata_inference.npy' -> Use this to train the Flow model on real data sidebands
+        self.save_numpy(data_outer, os.path.join(self.output_dir, 'outerdata_inference.npy'))
+        
+        # 'innerdata_inference.npy' -> This is where the anomalies are hidden!
+        # The model will generate synthetic background to compare against THIS file.
+        self.save_numpy(data_inner, os.path.join(self.output_dir, 'innerdata_inference.npy'))
+
+        print(f"Saved inference files.")
+        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_inference.npy')}")
+        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_inference.npy')}")
 
     def run(self):
         if self.run_mode == 'training':
@@ -283,6 +364,8 @@ class LaCATHODEPreperation:
             raise ValueError(f"Unknown run mode: {self.run_mode}")
 
 if __name__ == "__main__":
+    # For test run: 
+    # py .\framework\tools\lacathode_preperation.py --input_background=fastjet-output/background_events.jsonl --input_signal=fastjet-output/signal_events.jsonl
     preperation = LaCATHODEPreperation(
         **vars(args)
     )

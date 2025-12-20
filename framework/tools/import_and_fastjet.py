@@ -160,11 +160,15 @@ def process_events_chunk(df, start_index=0):
                 "P_T_lead": jet_constituents[max_PT_indices[j]].pt,
                 **taus_dict
             })
-            total_invariant_mass += jet.m
 
             if j == 1:
                 # Calculate delta R between the two leading jets
                 dR = inclusive_jets[0].deltaR(inclusive_jets[1])
+
+                # Calculate invariant mass of the dijet system
+                # Calculate this only when we have two jets
+                dijet_vector = inclusive_jets[0] + inclusive_jets[1]
+                total_invariant_mass = dijet_vector.m
 
             if j >= 1:
                 break  # Only consider first two leading jets for dijet system

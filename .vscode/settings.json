@@ -2,5 +2,6 @@
     "python.analysis.exclude": [
         "lora_lhco",
         "kept_checkpoints"
-    ]
+    ],
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
 }

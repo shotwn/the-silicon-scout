@@ -58,7 +58,9 @@ class OrchestratorAgent(LocalAgent):
                 input_unlabelled: str = None, 
                 output_dir: str = None,
                 training_fraction: float = 0.33,
-                validation_fraction: float = 0.33
+                validation_fraction: float = 0.33,
+                min_mass: float = 3.3,
+                max_mass: float = 3.7
         ) -> str:
             """
             Tool to run the LACathode data preparation script.
@@ -74,6 +76,8 @@ class OrchestratorAgent(LocalAgent):
                 output_dir: Directory to save prepared data (default: "lacathode_input_data")
                 training_fraction: Fraction of data to use for training (default 0.33)
                 validation_fraction: Fraction of data to use for validation (default 0.33)
+                min_mass: Minimum mass for signal region (SR) window in TeV (default 3.3)
+                max_mass: Maximum mass for signal region (SR) window in TeV (default 3.7)
             Returns:
                 A string summarizing the data preparation results.
             """
@@ -92,7 +96,9 @@ class OrchestratorAgent(LocalAgent):
                 command += ["--output_dir", output_dir]
             command += [
                 "--training_fraction", str(training_fraction),
-                "--validation_fraction", str(validation_fraction)
+                "--validation_fraction", str(validation_fraction),
+                "--min_mass", str(min_mass),
+                "--max_mass", str(max_mass)
             ]
             try:
                 result = subprocess.run(command, capture_output=True, text=True, check=True, env=os.environ)

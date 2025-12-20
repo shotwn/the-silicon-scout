@@ -10,7 +10,11 @@ additional_datasets/
 docs/site/
 logs/
 processed_lhco_dataset/
-fastjet_output/
+fastjet-output/
 articles/
 lacathode_input_data/
 rag_db/
+sk_cathode/
+trained_models/
+sk_cathode/
+graphs/

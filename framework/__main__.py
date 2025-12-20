@@ -83,6 +83,15 @@ class Framework:
             del self.model
             self.model = None
             torch.cuda.empty_cache()
+
+            for obj in gc.get_objects():
+                # Safely attempt to delete CUDA tensors
+                try:
+                    if isinstance(obj, torch.Tensor) and obj.is_cuda:
+                        del obj
+                except Exception:
+                    continue
+
             gc.collect()
             if hasattr(torch.cuda, "ipc_collect"):
                 torch.cuda.ipc_collect()
