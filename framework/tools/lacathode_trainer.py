@@ -10,6 +10,7 @@ from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
 
 import lacathode_event_dictionary as LEDict
+from lacathode_common import LaCATHODEProcessor
 
 # Get the directory of the current script
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -51,9 +52,9 @@ Data Structure Assumption (based on data_preparation.py and user query):
 """
 
 parser = argparse.ArgumentParser(description="Train LaCATHODE Model")
-parser.add_argument("--data_dir", type=str, default="./lacathode_input_data/",
+parser.add_argument("--data_dir", type=str, default="./toolout/lacathode_input_data/",
                     help="Directory containing processed .npy files")
-parser.add_argument("--model_dir", type=str, default="./trained_models/",
+parser.add_argument("--model_dir", type=str, default="./toolout/lacathode_trained_models/",
                     help="Directory to save/load trained models")
 parser.add_argument("--load_flow", action="store_true",
                     help="Load existing Flow model instead of retraining")
@@ -65,6 +66,12 @@ parser.add_argument("--epochs_clf", type=int, default=50,
                     help="Number of epochs for Classifier training")
 parser.add_argument("--plot", action="store_true",
                     help="Generate ROC curve plot after training")
+"""
+parser.add_argument("--inference_file", type=str, default=None,
+                    help="Path to the .npy file for inference (blackbox data)")
+                    """
+parser.add_argument("--save_scores", type=str, default="inference_scores.npy",
+                    help="Filename to save the resulting anomaly scores")
 
 args = parser.parse_args()
 
@@ -94,6 +101,8 @@ class LaCATHODETrainer:
             LEDict.get_tag_index("j2_tau2_over_tau1", -1), # tau21,j2
             LEDict.get_tag_index("dR", -1)                 # delta Rjj
         ]
+
+        self.processor = LaCATHODEProcessor()
 
     def load_data(self):
         """
@@ -157,134 +166,34 @@ class LaCATHODETrainer:
 
 
     def prepare_flow_inputs(self):
-        """
-        Prepares data for the Flow model using Robust, Feature-Specific Preprocessing.
-        Replaces generic LogitScaler to prevent crashes on unbounded data.
-        """
-        print("--- Preprocessing Flow Inputs (Robust Feature-Specific) ---")
+        print("--- Preprocessing Flow Inputs ---")
         
-        # 1. Copy Raw Data
-        # [:, 1:-1] excludes Mass (col 0) and Label (last col)
-        x_train = self.outer_train[:, 1:-1].copy()
-        x_val   = self.outer_val[:, 1:-1].copy()
+        # 1. Extract Raw Features
+        x_train_raw = self.outer_train[:, 1:-1]
+        x_val_raw   = self.outer_val[:, 1:-1]
 
-        # ---------------------------------------------------------
-        # GROUP 1: Discrete Variables (N_particles)
-        # ACTION: Dequantization (Add noise to make them continuous)
-        # Indices: 0 (Event N), 7 (J1 N), 18 (J2 N)
-        # ---------------------------------------------------------
-        discrete_indices = [
-            LEDict.get_tag_index("n_particles", -1),      # Adjusted for slicing
-            LEDict.get_tag_index("j1_n_particles", -1),
-            LEDict.get_tag_index("j2_n_particles", -1)
-        ]
+        # Raw Mass
+        m_train_raw = self.outer_train[:, 0:1]
+        m_val_raw   = self.outer_val[:, 0:1]
 
-        print(f"Dequantizing discrete features: {discrete_indices}")
+        # 2. Fit the Processor both x and m
+        self.processor.fit_scaler(x_train_raw, m_train_raw)
+
+        # 3. Transform Data (Force float32 for PyTorch)
+        self.x_outer_train = self.processor.transform(x_train_raw).astype(np.float32)
+        self.x_outer_val   = self.processor.transform(x_val_raw).astype(np.float32)
+
+        # 4. Transform Condition (Scale Mass) <--- NEW FIX
+        self.m_outer_train = self.processor.transform_condition(m_train_raw).astype(np.float32)
+        self.m_outer_val   = self.processor.transform_condition(m_val_raw).astype(np.float32)
         
-        np.random.seed(self.random_seed)
-        for idx in discrete_indices:
-            # Add noise [0, 1) to smooth integers (e.g. 20 -> 20.43)
-            x_train[:, idx] += np.random.uniform(0, 1.0, size=x_train.shape[0])
-            x_val[:, idx]   += np.random.uniform(0, 1.0, size=x_val.shape[0])
+        # 5. Sanitize
+        self.x_outer_train, self.m_outer_train = self.processor.sanitize(self.x_outer_train, self.m_outer_train)
+        self.x_outer_val, self.m_outer_val     = self.processor.sanitize(self.x_outer_val, self.m_outer_val)
 
-        # ---------------------------------------------------------
-        # GROUP 2: Bounded Ratios (Tau21) -> OPTIONAL LOGIT
-        # ACTION: Logit Transform (Only if strictly 0 < x < 1)
-        # Indices: 13 (J1 Tau21), 24 (J2 Tau21)
-        # ---------------------------------------------------------
-        ratio_indices = [
-            LEDict.get_tag_index("j1_tau2_over_tau1", -1),
-            LEDict.get_tag_index("j2_tau2_over_tau1", -1)
-        ]
-        print(f"Applying Logit transform to ratios: {ratio_indices}")
-        
-        # Clip to [1e-4, 1 - 1e-4] to avoid infs at 0 or 1
-        x_train[:, ratio_indices] = np.clip(x_train[:, ratio_indices], 1e-4, 1 - 1e-4)
-        x_val[:, ratio_indices]   = np.clip(x_val[:, ratio_indices],   1e-4, 1 - 1e-4)
-        
-        # Apply Logit: log(x / (1-x))
-        x_train[:, ratio_indices] = np.log(x_train[:, ratio_indices] / (1 - x_train[:, ratio_indices]))
-        x_val[:, ratio_indices]   = np.log(x_val[:, ratio_indices]   / (1 - x_val[:, ratio_indices]))
-
-        # ---------------------------------------------------------
-        # GROUP 3: Heavy-Tailed Positives (Mass, pT, Raw Taus)
-        # ACTION: Log Transform log(x + 1) to squash outliers
-        # Includes: j1_mass(5), j1_pT(7), j1_taus(8-11), j2_mass(16), j2_pT(18), j2_taus(19-22)
-        # ---------------------------------------------------------
-        log_indices = [
-            LEDict.get_tag_index("j1_mass", -1),
-            LEDict.get_tag_index("j1_P_T_lead", -1),
-            LEDict.get_tag_index("j1_tau_1", -1),
-            LEDict.get_tag_index("j1_tau_2", -1),
-            LEDict.get_tag_index("j1_tau_3", -1),
-            LEDict.get_tag_index("j1_tau_4", -1),
-            LEDict.get_tag_index("j2_mass", -1),
-            LEDict.get_tag_index("j2_P_T_lead", -1),
-            LEDict.get_tag_index("j2_tau_1", -1),
-            LEDict.get_tag_index("j2_tau_2", -1),
-            LEDict.get_tag_index("j2_tau_3", -1),
-            LEDict.get_tag_index("j2_tau_4", -1)
-        ]
-
-        print(f"Applying Log transform to heavy tails: {log_indices}")
-        
-        for idx in log_indices:
-            # Shift to be positive (some masses might be slightly neg due to errors)
-            min_val = min(x_train[:, idx].min(), x_val[:, idx].min())
-            offset = max(0, -min_val) + 1.0 # Ensure log(x) > 0
-            
-            x_train[:, idx] = np.log(x_train[:, idx] + offset)
-            x_val[:, idx]   = np.log(x_val[:, idx]   + offset)
-
-        # Use only certain features based on domain knowledge
-        # Feature indices based on the assumed structure:
-        x_train = x_train[:, self.use_indices]
-        x_val   = x_val[:, self.use_indices]
-
-        # 5. Global Standard Scaling
-        # We manually use StandardScaler now since we did custom prep
-        print("Applying Standard Scaling...")
-        self.outer_scaler = StandardScaler()
-        self.x_outer_train = self.outer_scaler.fit_transform(x_train)
-        self.x_outer_val   = self.outer_scaler.transform(x_val)
-
-        # Fail if any value is -5.0 or 5.0 (indicates something went wrong)
-        if np.any(self.x_outer_train <= -5.0) or np.any(self.x_outer_train >= 5.0):
-            actual_tag_indices = [idx + 1 for idx in self.use_indices] # +1 to account for mass column excluded earlier
-            current_feature_names = [LEDict.tags[i] for i in actual_tag_indices]
-
-            # Find which features caused the problem
-            problematic_col_indices = np.unique(np.where(
-                (self.x_outer_train <= -5.0) | (self.x_outer_train >= 5.0)
-            )[1])
-
-            for col_idx in problematic_col_indices:
-                feat_name = current_feature_names[col_idx]
-                
-                # Grab the actual values that failed for this specific column
-                col_data = self.x_outer_train[:, col_idx]
-                extreme_mask = (col_data <= -5.0) | (col_data >= 5.0)
-                extremes = col_data[extreme_mask]
-                
-                print(f"-> Feature: '{feat_name}' (Col {col_idx})")
-                print(f"   - Max Sigma: {extremes.max():.2f}")
-                print(f"   - Min Sigma: {extremes.min():.2f}")
-                print(f"   - Outlier Count: {len(extremes)} / {len(col_data)}")
-                    
-                
-            #raise ValueError("Training data has extreme values after scaling. Check preprocessing.")
-
-        """
-        # 6. Outlier Clipping (Safety Net)
-        # Prevent any remaining crazy values (e.g. 48 sigma) from killing the Flow
-        print("Clipping final values to [-5, 5] sigma...")
-        self.x_outer_train = np.clip(self.x_outer_train, -5.0, 5.0)
-        self.x_outer_val   = np.clip(self.x_outer_val,   -5.0, 5.0)
-        """
-
-        # 7. Prepare Conditional (Mass)
-        self.m_outer_train = self.outer_train[:, 0:1]
-        self.m_outer_val   = self.outer_val[:, 0:1]
+        print(f"Processed Train Shape: {self.x_outer_train.shape}")
+        if len(self.x_outer_val) == 0:
+             raise ValueError("Validation set is empty after processing! Check logic.")
 
         print("Flow inputs prepared successfully.")
 
@@ -319,33 +228,22 @@ class LaCATHODETrainer:
             print("Flow training complete.")
 
     def transform_to_latent(self):
-        """
-        STEP 2: The Latent Transformation
-        This is the magic of LaCATHODE. We take the Signal Region (Inner) data,
-        and pass it through the Flow we just trained on the Sideband.
-        
-        If the background physics is consistent, the Background events in SR
-        should map to a Standard Normal distribution (Gaussian noise) in latent space.
-        Signals, however, will map to something else (anomalies).
-        """
         print("--- Transforming Signal Region Data to Latent Space ---")
         
-        # Scale inner data using the scaler fitted on outer data
-        # MODIFICATION: Slice using self.use_indices before transform
-        x_inner_train_raw = self.inner_train[:, 1:-1]
-        x_inner_train = self.outer_scaler.transform(x_inner_train_raw[:, self.use_indices])
-        m_inner_train = self.inner_train[:, 0:1]
+        x_inner_train = self.processor.transform(self.inner_train[:, 1:-1]).astype(np.float32)
+        x_inner_val   = self.processor.transform(self.inner_val[:, 1:-1]).astype(np.float32)
         
-        x_inner_val_raw = self.inner_val[:, 1:-1]
-        x_inner_val = self.outer_scaler.transform(x_inner_val_raw[:, self.use_indices])
-        m_inner_val = self.inner_val[:, 0:1]
+        # Scale Mass here too!
+        m_inner_train = self.processor.transform_condition(self.inner_train[:, 0:1]).astype(np.float32)
+        m_inner_val   = self.processor.transform_condition(self.inner_val[:, 0:1]).astype(np.float32)
 
-        # Transform to Latent Space (z)
-        # z = Flow(x, conditional=m)
         self.z_train = self.flow_model.transform(x_inner_train, m=m_inner_train)
         self.z_val = self.flow_model.transform(x_inner_val, m=m_inner_val)
         
-        print(f"Latent Train Shape: {self.z_train.shape}")
+        self.z_train = self.processor.sanitize(self.z_train)
+        self.z_val = self.processor.sanitize(self.z_val)
+        
+        print(f"Latent Train Shape (Cleaned): {self.z_train.shape}")
 
     def prepare_classifier_data(self):
         """
@@ -416,48 +314,70 @@ class LaCATHODETrainer:
             print("Classifier training complete.")
 
     def evaluate(self, plot=False):
-        """
-        Evaluate the model on the held-out Test Set.
-        """
         print("--- Evaluating Performance ---")
         
-        # 1. Prepare Test Data
-        # We assume the last column of innerdata_test is the True Label (Signal vs Bkg)
         true_labels = self.inner_test[:, -1]
         
-        # 2. Transform Test Features to Latent Space 
-        # MODIFICATION: Slice using self.use_indices before transform
+        # 1. Process Test Features
         x_test_raw = self.inner_test[:, 1:-1]
-        x_test_scaled = self.outer_scaler.transform(x_test_raw[:, self.use_indices])
-        m_test = self.inner_test[:, 0:1]
         
-        # The flow transform might generate NaNs for crazy outliers, handle carefully
+        # Use the processor to transform features
         try:
+            x_test_scaled = self.processor.transform(x_test_raw)
+        except ValueError as e:
+            print(f"Preprocessing error: {e}")
+            return
+        
+        m_test = self.processor.transform_condition(self.inner_test[:, 0:1]).astype(np.float32)
+        
+        # 2. Transform to Latent Space (Flow Model)
+        print("Transforming test data to latent space...")
+        try:
+            # This might generate NaNs/Infs for outliers
             z_test = self.flow_model.transform(x_test_scaled, m=m_test)
         except Exception as e:
-            print(f"Warning during transformation: {e}")
+            print(f"Warning during flow transformation: {e}")
             return
 
-        # 3. Scale Latent Features
+        # 3. Sanitize Data (CRITICAL FIX)
+        # Check for Infs or NaNs in the latent space and remove them
+        is_finite = np.all(np.isfinite(z_test), axis=1)
+        n_dropped = np.sum(~is_finite)
+        
+        if n_dropped > 0:
+            print(f"WARNING: Dropping {n_dropped} events due to Infinity/NaN in latent space.")
+            z_test = z_test[is_finite]
+            true_labels = true_labels[is_finite]
+            
+            if len(z_test) == 0:
+                print("Error: All events were dropped. Cannot evaluate.")
+                return
+
+        # 4. Scale Latent Features
+        # Now this is safe because we removed the Infs
         z_test_scaled = self.latent_scaler.transform(z_test)
         
-        # 4. Predict Anomaly Score
-        # The output is probability of being "Data" (Signal) vs "Noise" (Background)
+        # 5. Predict Anomaly Score
         scores = self.classifier.predict(z_test_scaled)
         
-        # 5. Calculate Metric (ROC AUC)
-        # Remove NaNs if any
-        mask = ~np.isnan(scores).flatten()
-        y_clean = true_labels[mask]
-        scores_clean = scores[mask].flatten()
+        # 6. Calculate Metric (ROC AUC)
+        # Ensure scores are flattened
+        scores = scores.flatten()
         
+        # Double check for any NaNs in scores themselves
+        mask = np.isfinite(scores)
+        y_clean = true_labels[mask]
+        scores_clean = scores[mask]
+        
+        if len(y_clean) == 0:
+            print("No valid scores to evaluate.")
+            return
+
         fpr, tpr, _ = roc_curve(y_clean, scores_clean)
         roc_auc = auc(fpr, tpr)
         
         print(f"\nResult: ROC AUC = {roc_auc:.4f}")
         
-        # Calculate Significance Improvement (SIC)
-        # SIC = TPR / sqrt(FPR)
         with np.errstate(divide='ignore', invalid='ignore'):
             sic = tpr / np.sqrt(fpr)
             max_sic = np.nanmax(sic)
@@ -474,82 +394,6 @@ class LaCATHODETrainer:
             plt.savefig('lacathode_roc.png')
             print("Plot saved to lacathode_roc.png")
         
-    def predict(self, inference_file_path, save_name):
-        """
-        Inference Mode:
-        1. Loads blackbox data.
-        2. Applies the EXACT same transformations (Logit, Log, Scaling) as training.
-        3. Transforms to Latent Space (Flow).
-        4. Predicts Anomaly Score (Classifier).
-        """
-        print(f"\n--- Running Inference on {inference_file_path} ---")
-        
-        # 1. Load Data
-        try:
-            # Assumes structure: [Mass, Features..., Label] or just [Mass, Features...]
-            data = np.load(inference_file_path)
-            print(f"Loaded Inference Data: {data.shape}")
-        except Exception as e:
-            print(f"Error loading inference file: {e}")
-            return
-
-        # 2. Preprocess
-        # Slice features (assuming same columns as training)
-        # Note: If your inference file has no label column at the end, adjust slicing!
-        # Here we assume it matches innerdata structure: [Mass, ..., Label]
-        m_raw = data[:, 0:1]
-        x_raw = data[:, 1:-1].copy() # Exclude mass (0) and label (-1)
-
-        # A. Discrete Dequantization (Add same noise logic)
-        discrete_indices = [
-            LEDict.get_tag_index("n_particles", -1),
-            LEDict.get_tag_index("j1_n_particles", -1),
-            LEDict.get_tag_index("j2_n_particles", -1)
-        ]
-        # For inference, we usually add 0.5 (mean) or random noise. 
-        # Using random noise matches the training distribution best for Flows.
-        np.random.seed(42) 
-        for idx in discrete_indices:
-            x_raw[:, idx] += np.random.uniform(0, 1.0, size=x_raw.shape[0])
-
-        # B. Logit Transform
-        ratio_indices = [
-            LEDict.get_tag_index("j1_tau2_over_tau1", -1),
-            LEDict.get_tag_index("j2_tau2_over_tau1", -1)
-        ]
-        x_raw[:, ratio_indices] = np.clip(x_raw[:, ratio_indices], 1e-4, 1 - 1e-4)
-        x_raw[:, ratio_indices] = np.log(x_raw[:, ratio_indices] / (1 - x_raw[:, ratio_indices]))
-
-        # C. Log Transform (Using SAVED offsets)
-        if not hasattr(self, 'log_offsets'):
-            print("Error: Model not initialized. You must run prepare_flow_inputs first.")
-            return
-
-        for idx, offset in self.log_offsets.items():
-            x_raw[:, idx] = np.log(x_raw[:, idx] + offset)
-
-        # D. Standard Scaling (Using PRE-FITTED scaler)
-        # Filter only the features we use
-        x_selected = x_raw[:, self.use_indices]
-        x_scaled = self.outer_scaler.transform(x_selected)
-
-        # 3. Transform to Latent Space
-        print("Transforming to Latent Space...")
-        z_inference = self.flow_model.transform(x_scaled, m=m_raw)
-
-        # 4. Predict
-        # Scale latent inputs using the PRE-FITTED latent scaler
-        z_scaled = self.latent_scaler.transform(z_inference)
-        
-        print("Calculating Anomaly Scores...")
-        scores = self.classifier.predict(z_scaled)
-
-        # 5. Save Results
-        output_path = os.path.join(self.model_dir, save_name)
-        np.save(output_path, scores)
-        print(f"Done! Scores saved to: {output_path}")
-        print(f"Mean Score: {np.nanmean(scores):.4f} (Higher = More Anomalous)")
-
 def main():
     trainer = LaCATHODETrainer(args.data_dir, args.model_dir)
     

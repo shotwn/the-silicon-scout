@@ -17,7 +17,7 @@ parser.add_argument('--input_unlabeled', type=str, required=False,
                     help='Path to unlabeled data file (output of import_and_fastjet.py), for inference mode')
 
 parser.add_argument('--output_dir', type=str, required=False,
-                    default='./lacathode_input_data/',
+                    default='./toolout/lacathode_input_data/',
                     help='Output directory for LaCATHODE prepared data files')
 
 parser.add_argument('--run_mode', type=str, choices=['training', 'inference'], default='training',
@@ -33,9 +33,9 @@ parser.add_argument('--validation_fraction', type=float, default=0.33,
                     help='Fraction of data to use for validation')
 
 # For defining the signal region (SR) window
-parser.add_argument('--min_mass', type=float, default=3.3,
+parser.add_argument('--min_mass', type=float, default=3.2,
                     help='Minimum mass for Signal Region (SR) window in TeV')
-parser.add_argument('--max_mass', type=float, default=3.7,
+parser.add_argument('--max_mass', type=float, default=3.9,
                     help='Maximum mass for Signal Region (SR) window in TeV')
 
 args = parser.parse_args()
@@ -81,7 +81,7 @@ class LaCATHODEPreperation:
         self.input_signal = args.get('input_signal')
         self.input_unlabeled = args.get('input_unlabeled')
 
-        self.output_dir = args.get('output_dir', './lacathode_input_data/')
+        self.output_dir = args.get('output_dir', './toolout/lacathode_input_data/')
 
         self.shuffle_seed = args.get('shuffle_seed', 42)
 

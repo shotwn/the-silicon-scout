@@ -1,0 +1,164 @@
+import argparse
+import os
+import sys
+import numpy as np
+from lacathode_common import LaCATHODEProcessor # <--- Uses the common file
+
+# --- Path Setup for sk_cathode ---
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sk_cathode_path = os.path.join(current_dir, "../../sk_cathode")
+if sk_cathode_path not in sys.path:
+    sys.path.append(sk_cathode_path)
+
+from sk_cathode.generative_models.conditional_normalizing_flow_torch import ConditionalNormalizingFlow
+from sk_cathode.classifier_models.neural_network_classifier import NeuralNetworkClassifier
+
+class LaCATHODEOracle:
+    def __init__(self, data_dir, model_dir):
+        self.data_dir = data_dir
+        self.model_dir = model_dir
+        
+        # Instantiate the shared processor
+        self.processor = LaCATHODEProcessor()
+
+        print("--- Initializing Oracle State ---")
+        self._restore_state()
+
+    def _restore_state(self):
+        """
+        To predict correctly, we must 'remember' the scaling from the training phase.
+        We do this by loading the original training data and re-fitting the processor.
+        """
+        # 1. Load Original Training Data
+        print("1. Loading Training Data (to restore scaler state)...")
+        try:
+            # We need the Sideband (Outer) to fit the Feature Scaler
+            outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
+            # We need the Signal Region (Inner) to fit the Latent Scaler
+            inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
+        except FileNotFoundError:
+            print("Error: Training data not found. The Oracle needs 'outerdata_train.npy' to calibrate itself.")
+            sys.exit(1)
+
+        # 2. Fit the Processor (Learn Log-Offsets and Mean/Std from Training Data)
+        # Slicing [:, 1:-1] removes Mass (col 0) and Label (last col)
+        self.processor.fit_scaler(outer_train[:, 1:-1]) 
+
+        # 3. Load the Trained Flow Model
+        print("2. Loading Flow Model...")
+        self.flow_model = ConditionalNormalizingFlow(
+            save_path=self.model_dir, 
+            num_inputs=len(self.processor.use_indices), 
+            epochs=0, 
+            verbose=False
+        )
+        self.flow_model.load_best_model()
+
+        # 4. Fit Latent Scaler
+        # The Classifier expects inputs normalized to Mean=0, Std=1. 
+        # We must transform the training data to latent space to learn these stats.
+        print("3. Calibrating Latent Space...")
+        x_inner_scaled = self.processor.transform(inner_train[:, 1:-1])
+        m_inner = inner_train[:, 0:1]
+        
+        # Project training data to latent space
+        z_train = self.flow_model.transform(x_inner_scaled, m=m_inner)
+        
+        # The classifier was trained on a mix of Data + Synthetic Gaussian. 
+        # We replicate that mix here to get the exact same scaler.
+        z_mix = np.vstack([z_train, np.random.randn(*z_train.shape)])
+        self.processor.latent_scaler.fit(z_mix)
+        
+        # 5. Load Classifier
+        print("4. Loading Classifier...")
+        self.classifier = NeuralNetworkClassifier(
+            save_path=os.path.join(self.model_dir, "classifier"),
+            n_inputs=z_train.shape[1], 
+            epochs=0, 
+            verbose=False
+        )
+        self.classifier.load_best_model()
+        print("Oracle Ready.\n")
+
+    def predict(self, inference_file_path, save_name):
+        print(f"--- Running Inference on {inference_file_path} ---")
+        
+        try:
+            data = np.load(inference_file_path)
+            print(f"Loaded {len(data)} events.")
+        except Exception as e:
+            print(f"Error loading file: {e}")
+            return
+
+        # 1. Prepare Inputs
+        # Assumption: Inference file has [Mass, Features..., (Label?)]
+        # If it's a blackbox, it might not have a label.
+        # We assume standard format: Col 0 is Mass.
+        m_raw = data[:, 0:1]
+        
+        # Check dimensions to decide slicing
+        # If columns == 27 (with label), slice 1:-1
+        # If columns == 26 (no label), slice 1:
+        if data.shape[1] == 27:
+            x_raw = data[:, 1:-1]
+        else:
+            x_raw = data[:, 1:] # Assume all remaining are features
+
+        # 2. Preprocess (Using the restored processor)
+        x_scaled = self.processor.transform(x_raw)
+
+        # 3. Flow Transform (Data -> Latent Z)
+        print("Transforming to Latent Space...")
+        z_inference = self.flow_model.transform(x_scaled, m=m_raw)
+
+        # --- SAFETY FIX STARTS HERE ---
+        # 4. Check for NaNs/Infs in Latent Space
+        # This prevents the ValueError from crashing the script
+        valid_mask = np.all(np.isfinite(z_inference), axis=1)
+        n_invalid = len(z_inference) - np.sum(valid_mask)
+        
+        # Initialize output array with a default safe score (0.0 = Background)
+        final_scores = np.zeros(len(data), dtype=np.float32)
+
+        if n_invalid > 0:
+            print(f"WARNING: {n_invalid} events produced Infinity/NaN in latent space.")
+            print("         Assigning default score 0.0 to these events.")
+
+        # 5. Classifier (Latent Z -> Anomaly Score)
+        # Only process valid events to avoid crash
+        if np.any(valid_mask):
+            z_valid = z_inference[valid_mask]
+            
+            # Scale Z using the restored latent scaler
+            z_scaled_valid = self.processor.latent_scaler.transform(z_valid)
+            
+            # Predict
+            scores_valid = self.classifier.predict(z_scaled_valid)
+            
+            # Fill the valid spots in the final array
+            final_scores[valid_mask] = scores_valid.flatten()
+        
+        # --- SAFETY FIX ENDS HERE ---
+
+        # 6. Save
+        output_path = os.path.join(self.model_dir, save_name)
+        np.save(output_path, final_scores)
+        print(f"Done! Scores saved to: {output_path}")
+        print(f"Mean Score: {np.nanmean(final_scores):.4f} (Higher > 0.5 = More Anomalous)")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="LaCATHODE Oracle Inference")
+    parser.add_argument("--data_dir", type=str, default="./toolout/lacathode_input_data/",
+                        help="Directory containing ORIGINAL training data (needed for calibration)")
+    parser.add_argument("--model_dir", type=str, default="./toolout/lacathode_trained_models/",
+                        help="Directory containing trained models")
+    parser.add_argument("--inference_file", type=str, required=True,
+                        help="Path to the file to predict on (e.g., innerdata_inference.npy)")
+    parser.add_argument("--output_file", type=str, default="oracle_scores.npy",
+                        help="Name of the output score file")
+    
+    args = parser.parse_args()
+
+    oracle = LaCATHODEOracle(args.data_dir, args.model_dir)
+    oracle.predict(args.inference_file, args.output_file)
