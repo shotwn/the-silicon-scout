@@ -12,10 +12,11 @@ from argparse import ArgumentParser
 
 arg_parser = ArgumentParser()
 arg_parser.add_argument("--input_file", type=str, default="events_anomalydetection_v2.h5", help="Path to the HDF5 file containing event data.")
-arg_parser.add_argument("--numpy_read_chunk_size", type=int, default=100000, help="Number of rows to read at a time.")
+arg_parser.add_argument("--numpy_read_chunk_size", type=int, default=50000, help="Number of rows to read at a time.")
 arg_parser.add_argument("--size_per_row", type=int, default=2100, help="Number of data columns per row (excluding label).")
-arg_parser.add_argument("--output_dir", type=str, default="fastjet-output", help="Directory to store output files.")
+arg_parser.add_argument("--output_dir", type=str, default="toolout/fastjet-output", help="Directory to store output files.")
 arg_parser.add_argument("--min_pt", type=float, default=20.0, help="Minimum transverse momentum for jets.")
+arg_parser.add_argument("--no_label_input", action="store_true", help="Indicates that the input data does not contain labels.")
 
 args = arg_parser.parse_args()
 
@@ -27,7 +28,8 @@ file_path = args.input_file
 numpy_read_chunk_size = args.numpy_read_chunk_size  # Number of rows to read at a time
 
 size_per_row = args.size_per_row  # 2100 data + 1 label will make 2101 columns
-no_label = False # Disables labels, all data outputs as background
+no_label = args.no_label_input # Disables labels, all data outputs as background
+# Blackbox labels disabled for now
 # blackbox_label_file = "events_LHCO2020_BlackBox1.masterkey"  # Whether to use external blackbox labels
 blackbox_label_file = None  # Whether to use external blackbox labels
 
@@ -253,18 +255,30 @@ if __name__ == "__main__":
     background_files = glob.glob(background_file_format)
     signal_files = glob.glob(signal_file_format)
 
-    with open(f"{args.output_dir}/background_events.jsonl", "w") as outfile:
-        for fname in background_files:
-            with open(fname) as infile:
-                for line in infile:
-                    outfile.write(line)
-            os.remove(fname) # Remove the chunk file after merging
-    with open(f"{args.output_dir}/signal_events.jsonl", "w") as outfile:
-        for fname in signal_files:
-            with open(fname) as infile:
-                for line in infile:
-                    outfile.write(line)
-            os.remove(fname) # Remove the chunk file after merging
+    # If no_label is set, all events were cached as background
+    # But we want it to be named unlabeled_events file
+    if no_label and not blackbox_labels: # No labels at all
+        with open(f"{args.output_dir}/unlabeled_events.jsonl", "w") as outfile:
+            for fname in background_files:
+                with open(fname) as infile:
+                    for line in infile:
+                        outfile.write(line)
+                os.remove(fname) # Remove the chunk file after merging
+        
+    else:
+        with open(f"{args.output_dir}/background_events.jsonl", "w") as outfile:
+            for fname in background_files:
+                with open(fname) as infile:
+                    for line in infile:
+                        outfile.write(line)
+                os.remove(fname) # Remove the chunk file after merging
+
+        with open(f"{args.output_dir}/signal_events.jsonl", "w") as outfile:
+            for fname in signal_files:
+                with open(fname) as infile:
+                    for line in infile:
+                        outfile.write(line)
+                os.remove(fname) # Remove the chunk file after merging
 
 
     print(
