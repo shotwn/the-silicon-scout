@@ -159,6 +159,7 @@ class LaCATHODEProcessor(BaseEstimator, TransformerMixin):
     def __init__(self):
         self.outer_scaler = StandardScaler() # For input features
         self.cond_scaler = StandardScaler() # For condition (Mass)
+        self.latent_scaler = StandardScaler() # For latent space scaling
         
         # Standard LHCO Features
         self.use_indices = [

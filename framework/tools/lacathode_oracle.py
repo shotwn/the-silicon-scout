@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 from lacathode_common import LaCATHODEProcessor # <--- Uses the common file
 
 # --- Path Setup for sk_cathode ---
@@ -20,6 +21,9 @@ class LaCATHODEOracle:
         
         # Instantiate the shared processor
         self.processor = LaCATHODEProcessor()
+
+        # Instantiate the latent scaler (For Outputs: Z)
+        self.latent_scaler = StandardScaler()
 
         print("--- Initializing Oracle State ---")
         self._restore_state()
@@ -41,8 +45,8 @@ class LaCATHODEOracle:
             sys.exit(1)
 
         # 2. Fit the Processor (Learn Log-Offsets and Mean/Std from Training Data)
-        # Slicing [:, 1:-1] removes Mass (col 0) and Label (last col)
-        self.processor.fit_scaler(outer_train[:, 1:-1]) 
+        # Pass BOTH Features (1:-1) and Mass (0:1) so the condition scaler is fitted
+        self.processor.fit_scaler(outer_train[:, 1:-1], outer_train[:, 0:1])
 
         # 3. Load the Trained Flow Model
         print("2. Loading Flow Model...")
@@ -58,16 +62,20 @@ class LaCATHODEOracle:
         # The Classifier expects inputs normalized to Mean=0, Std=1. 
         # We must transform the training data to latent space to learn these stats.
         print("3. Calibrating Latent Space...")
-        x_inner_scaled = self.processor.transform(inner_train[:, 1:-1])
-        m_inner = inner_train[:, 0:1]
+        x_inner_scaled = self.processor.transform(inner_train[:, 1:-1]).astype(np.float32)
+        # Scale the Mass (Condition)
+        m_inner = self.processor.transform_condition(inner_train[:, 0:1]).astype(np.float32)
         
         # Project training data to latent space
         z_train = self.flow_model.transform(x_inner_scaled, m=m_inner)
         
+        # Sanitize (Remove rare NaNs if any)
+        z_train = self.processor.sanitize(z_train)
+        
         # The classifier was trained on a mix of Data + Synthetic Gaussian. 
         # We replicate that mix here to get the exact same scaler.
         z_mix = np.vstack([z_train, np.random.randn(*z_train.shape)])
-        self.processor.latent_scaler.fit(z_mix)
+        self.latent_scaler.fit(z_mix)
         
         # 5. Load Classifier
         print("4. Loading Classifier...")
@@ -105,11 +113,13 @@ class LaCATHODEOracle:
             x_raw = data[:, 1:] # Assume all remaining are features
 
         # 2. Preprocess (Using the restored processor)
-        x_scaled = self.processor.transform(x_raw)
+        x_scaled = self.processor.transform(x_raw).astype(np.float32)
+        # Scale the Mass (Condition)
+        m_scaled = self.processor.transform_condition(m_raw).astype(np.float32)
 
         # 3. Flow Transform (Data -> Latent Z)
         print("Transforming to Latent Space...")
-        z_inference = self.flow_model.transform(x_scaled, m=m_raw)
+        z_inference = self.flow_model.transform(x_scaled, m=m_scaled)
 
         # --- SAFETY FIX STARTS HERE ---
         # 4. Check for NaNs/Infs in Latent Space
@@ -130,7 +140,7 @@ class LaCATHODEOracle:
             z_valid = z_inference[valid_mask]
             
             # Scale Z using the restored latent scaler
-            z_scaled_valid = self.processor.latent_scaler.transform(z_valid)
+            z_scaled_valid = self.latent_scaler.transform(z_valid)
             
             # Predict
             scores_valid = self.classifier.predict(z_scaled_valid)
