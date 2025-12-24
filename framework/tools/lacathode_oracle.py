@@ -37,9 +37,20 @@ class LaCATHODEOracle:
         print("1. Loading Training Data (to restore scaler state)...")
         try:
             # We need the Sideband (Outer) to fit the Feature Scaler
-            outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
+            # If there is inference mode, we use the inference training file
+            outer_train_path = os.path.join(self.data_dir, "outerdata_inference_train.npy")
+            if os.path.exists(outer_train_path):
+                outer_train = np.load(outer_train_path)
+            else:
+                outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
+            
             # We need the Signal Region (Inner) to fit the Latent Scaler
-            inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
+            # If inference mode, use inference training file
+            inner_train_path = os.path.join(self.data_dir, "innerdata_inference_train.npy")
+            if os.path.exists(inner_train_path):
+                inner_train = np.load(inner_train_path)
+            else:
+                inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
         except FileNotFoundError:
             print("Error: Training data not found. The Oracle needs 'outerdata_train.npy' to calibrate itself.")
             sys.exit(1)

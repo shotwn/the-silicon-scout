@@ -66,10 +66,9 @@ parser.add_argument("--epochs_clf", type=int, default=50,
                     help="Number of epochs for Classifier training")
 parser.add_argument("--plot", action="store_true",
                     help="Generate ROC curve plot after training")
-"""
-parser.add_argument("--inference_file", type=str, default=None,
-                    help="Path to the .npy file for inference (blackbox data)")
-                    """
+parser.add_argument("--inference_mode", action="store_true",
+                    help="Run in inference mode using 'innerdata_inference_x.npy'")
+
 parser.add_argument("--save_scores", type=str, default="inference_scores.npy",
                     help="Filename to save the resulting anomaly scores")
 
@@ -110,14 +109,23 @@ class LaCATHODETrainer:
         """
         print(f"--- Loading Data from {self.data_dir} ---")
         try:
-            # Load Sideband Data (used to train Flow)
-            self.outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
-            self.outer_val = np.load(os.path.join(self.data_dir, "outerdata_val.npy"))
-            
-            # Load Signal Region Data (used to train Classifier)
-            self.inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
-            self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_val.npy"))
-            self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_test.npy"))
+            if args.inference_mode:
+                # In inference mode, we only need the inference files
+                self.outer_train = np.load(os.path.join(self.data_dir, "outerdata_inference_train.npy"))
+                self.outer_val = np.load(os.path.join(self.data_dir, "outerdata_inference_val.npy"))
+                
+                self.inner_train = np.load(os.path.join(self.data_dir, "innerdata_inference_train.npy"))
+                self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_inference_val.npy"))
+                self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_inference_test.npy"))
+            else:
+                # Load Sideband Data (used to train Flow)
+                self.outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
+                self.outer_val = np.load(os.path.join(self.data_dir, "outerdata_val.npy"))
+                
+                # Load Signal Region Data (used to train Classifier)
+                self.inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
+                self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_val.npy"))
+                self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_test.npy"))
             
             print(f"Loaded Outer Train: {self.outer_train.shape}")
             print(f"Loaded Inner Train: {self.inner_train.shape}")

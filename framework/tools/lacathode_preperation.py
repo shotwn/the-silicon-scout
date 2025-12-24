@@ -324,8 +324,9 @@ class LaCATHODEPreperation:
 
     def inference_mode(self):
         """
-        MODE 2: Actually Using It (True Inference)
+        MODE 2: Actually Using It (True Inference / Black Box)
         Uses one Unlabeled Data file (Real Data).
+        Splits it into Train/Val/Test so the Trainer works out-of-the-box.
         """
         print("Running in INFERENCE mode (Using on real data)...")
         if not self.input_unlabeled:
@@ -334,26 +335,51 @@ class LaCATHODEPreperation:
         # Load unlabeled data (Label defaults to 0 usually, or doesn't matter)
         data = self.load_to_numpy(self.input_unlabeled, label_type='background')
         
-        # No Train/Test split needed, just shuffle to break any ordering artifacts
-        np.random.seed(self.shuffle_seed)
-        np.random.shuffle(data)
-
-        # Separate SR/SB
-        # Even in inference, CATHODE needs the Sideband (Outer) to estimate the background
-        # and the Signal Region (Inner) to look for anomalies.
-        data_inner, data_outer = self.separate_SB_SR(data)
-
-        # Save
-        # 'outerdata_inference.npy' -> Use this to train the Flow model on real data sidebands
-        self.save_numpy(data_outer, os.path.join(self.output_dir, 'outerdata_inference.npy'))
+        # Shuffle and Split
+        # This handles the random seed, shuffling, and index slicing
+        # We won't have test set so give its fraction to training
+        train_fraction = 1 - self.validation_fraction
+        val_fraction = self.validation_fraction
         
-        # 'innerdata_inference.npy' -> This is where the anomalies are hidden!
-        # The model will generate synthetic background to compare against THIS file.
-        self.save_numpy(data_inner, os.path.join(self.output_dir, 'innerdata_inference.npy'))
+        train_set, val_set, _empty_set = self.shuffle_and_split(
+            data, 
+            train_fraction=train_fraction, 
+            val_fraction=val_fraction
+        )
 
+        # Separate SR/SB (Inner/Outer)
+        # We need "Outer" to train the model, and "Inner" to test it.
+        tr_in, tr_out = self.separate_SB_SR(train_set)
+        val_in, val_out = self.separate_SB_SR(val_set)
+        
+        # Since there are no labels in our data files, we don't need to separate test set
+        # We just copy val_set to test_set for code simplicity
+        test_in = val_in.copy()
+        test_out = val_out.copy()
+        
+        # Save
+        # 'outerdata_inference_train.npy' -> Use this to train the Flow model on real data sidebands
+        self.save_numpy(tr_out, os.path.join(self.output_dir, 'outerdata_inference_train.npy'))
+        self.save_numpy(val_out, os.path.join(self.output_dir, 'outerdata_inference_val.npy'))
+        
+        # 'innerdata_inference_train.npy' -> This is where the anomalies are hidden!
+        # The model will generate synthetic background to compare against THIS file.
+        self.save_numpy(tr_in, os.path.join(self.output_dir, 'innerdata_inference_train.npy'))
+        self.save_numpy(val_in, os.path.join(self.output_dir, 'innerdata_inference_val.npy'))
+
+        # Test set is just a copy of validation set in inference mode
+        self.save_numpy(test_in, os.path.join(self.output_dir, 'innerdata_inference_test.npy'))
+        self.save_numpy(test_out, os.path.join(self.output_dir, 'outerdata_inference_test.npy'))
+
+        # Save combined file to run Oracle inference on
+        combined_inference = np.vstack((tr_in, val_in))
+        self.save_numpy(combined_inference, os.path.join(self.output_dir, 'innerdata_inference_combined.npy'))
+        
         print(f"Saved inference files.")
-        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_inference.npy')}")
-        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_inference.npy')}")
+        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_inference_train.npy')}")
+        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_inference_train.npy')}")
+        print(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_inference_val.npy')} and {os.path.join(self.output_dir, 'innerdata_inference_val.npy')}")
+        print(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_inference_test.npy')} and {os.path.join(self.output_dir, 'innerdata_inference_test.npy')}")
 
     def run(self):
         if self.run_mode == 'training':
