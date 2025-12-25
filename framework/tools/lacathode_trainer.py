@@ -133,45 +133,6 @@ class LaCATHODETrainer:
             print(f"Error loading data: {e}")
             sys.exit(1)
 
-    def prepare_flow_inputs_ex(self):
-        """
-        Prepares data for the Flow model.
-        The Flow is conditional: it learns p(features | mass).
-        """
-        print("--- Preprocessing Flow Inputs ---")
-        
-        # Data Slicing based on mjj being in column 0
-        # m = Mass (Conditional)
-        # x = Features (Input)
-
-        # Isolate features (exclude mass and label)
-        x_train_raw = self.outer_train[:, 1:-1].copy()  # Exclude mass and label
-        x_val_raw = self.outer_val[:, 1:-1].copy()  # Exclude mass and label
-        
-        # Discrete indexes (like n_particles) should be treated carefully
-        # They are integers but we treat them as continuous for the Flow
-        discrete_indices = [0, 7, 18] # Adjusted for slicing (originally 1, 8, 19)
-
-        np.random.seed(self.random_seed)
-        for idx in discrete_indices:
-            # Add uniform noise in range [0, 1) to smooth the integers
-            # This should help preventing the Flow model collapsing on discrete values
-            x_train_raw[:, idx] += np.random.uniform(0, 0.99, size=x_train_raw.shape[0])
-            x_train_raw[:, idx] /= 10.0  # Normalize n_particles to [0, 1]
-            x_val_raw[:, idx]   += np.random.uniform(0, 0.99, size=x_val_raw.shape[0])
-            x_val_raw[:, idx]   /= 10.0  # Normalize n_particles to [0, 1]
-
-
-        # Now that data is continuous, scaling will work safely
-        self.x_outer_train = self.outer_scaler.fit_transform(x_train_raw)
-        self.x_outer_val   = self.outer_scaler.transform(x_val_raw)
-        
-        # Prepare Conditional (Mass is column 0)
-        self.m_outer_train = self.outer_train[:, 0:1]
-        self.m_outer_val   = self.outer_val[:, 0:1]
-
-        print("Flow inputs prepared (Dequantization + Scaling applied).")
-
 
     def prepare_flow_inputs(self):
         print("--- Preprocessing Flow Inputs ---")
@@ -219,7 +180,9 @@ class LaCATHODETrainer:
             num_inputs=num_inputs,
             early_stopping=True,
             epochs=None if not load else 0, # Skip training loop if loading
-            verbose=True
+            verbose=True,
+            # Standard is 1e-3; 1e-4 is much safer for stability.
+            # learning_rate=1e-4
         )
         
         if load:
@@ -326,7 +289,7 @@ class LaCATHODETrainer:
         
         true_labels = self.inner_test[:, -1]
         
-        # 1. Process Test Features
+        # Process Test Features
         x_test_raw = self.inner_test[:, 1:-1]
         
         # Use the processor to transform features
@@ -338,7 +301,7 @@ class LaCATHODETrainer:
         
         m_test = self.processor.transform_condition(self.inner_test[:, 0:1]).astype(np.float32)
         
-        # 2. Transform to Latent Space (Flow Model)
+        # Transform to Latent Space (Flow Model)
         print("Transforming test data to latent space...")
         try:
             # This might generate NaNs/Infs for outliers
@@ -347,7 +310,7 @@ class LaCATHODETrainer:
             print(f"Warning during flow transformation: {e}")
             return
 
-        # 3. Sanitize Data (CRITICAL FIX)
+        # Sanitize Data
         # Check for Infs or NaNs in the latent space and remove them
         is_finite = np.all(np.isfinite(z_test), axis=1)
         n_dropped = np.sum(~is_finite)
@@ -361,14 +324,14 @@ class LaCATHODETrainer:
                 print("Error: All events were dropped. Cannot evaluate.")
                 return
 
-        # 4. Scale Latent Features
+        # Scale Latent Features
         # Now this is safe because we removed the Infs
         z_test_scaled = self.latent_scaler.transform(z_test)
         
-        # 5. Predict Anomaly Score
+        # Predict Anomaly Score
         scores = self.classifier.predict(z_test_scaled)
         
-        # 6. Calculate Metric (ROC AUC)
+        # Calculate Metric (ROC AUC)
         # Ensure scores are flattened
         scores = scores.flatten()
         
@@ -405,23 +368,23 @@ class LaCATHODETrainer:
 def main():
     trainer = LaCATHODETrainer(args.data_dir, args.model_dir)
     
-    # 1. Load Data
+    # Load Data
     trainer.load_data()
     
-    # 2. Prepare & Train Flow (Background Model)
+    # Prepare & Train Flow (Background Model)
     trainer.prepare_flow_inputs()
     trainer.train_flow(load=args.load_flow, epochs=args.epochs_flow)
     
-    # 3. Transform Data to Latent Space
+    # Transform Data to Latent Space
     trainer.transform_to_latent()
     
-    # 4. Prepare Classifier Data (Mix Real vs Synthetic)
+    # Prepare Classifier Data (Mix Real vs Synthetic)
     trainer.prepare_classifier_data()
     
-    # 5. Train Classifier (Anomaly Detector)
+    # Train Classifier (Anomaly Detector)
     trainer.train_classifier(load=args.load_classifier, epochs=args.epochs_clf)
     
-    # 6. Evaluate
+    # Evaluate
     trainer.evaluate(plot=args.plot)
 
 if __name__ == "__main__":

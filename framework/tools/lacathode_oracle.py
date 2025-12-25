@@ -33,7 +33,7 @@ class LaCATHODEOracle:
         To predict correctly, we must 'remember' the scaling from the training phase.
         We do this by loading the original training data and re-fitting the processor.
         """
-        # 1. Load Original Training Data
+        # Load Original Training Data
         print("1. Loading Training Data (to restore scaler state)...")
         try:
             # We need the Sideband (Outer) to fit the Feature Scaler
@@ -55,11 +55,11 @@ class LaCATHODEOracle:
             print("Error: Training data not found. The Oracle needs 'outerdata_train.npy' to calibrate itself.")
             sys.exit(1)
 
-        # 2. Fit the Processor (Learn Log-Offsets and Mean/Std from Training Data)
+        # Fit the Processor (Learn Log-Offsets and Mean/Std from Training Data)
         # Pass BOTH Features (1:-1) and Mass (0:1) so the condition scaler is fitted
         self.processor.fit_scaler(outer_train[:, 1:-1], outer_train[:, 0:1])
 
-        # 3. Load the Trained Flow Model
+        # Load the Trained Flow Model
         print("2. Loading Flow Model...")
         self.flow_model = ConditionalNormalizingFlow(
             save_path=self.model_dir, 
@@ -69,7 +69,7 @@ class LaCATHODEOracle:
         )
         self.flow_model.load_best_model()
 
-        # 4. Fit Latent Scaler
+        # Fit Latent Scaler
         # The Classifier expects inputs normalized to Mean=0, Std=1. 
         # We must transform the training data to latent space to learn these stats.
         print("3. Calibrating Latent Space...")
@@ -88,7 +88,7 @@ class LaCATHODEOracle:
         z_mix = np.vstack([z_train, np.random.randn(*z_train.shape)])
         self.latent_scaler.fit(z_mix)
         
-        # 5. Load Classifier
+        # Load Classifier
         print("4. Loading Classifier...")
         self.classifier = NeuralNetworkClassifier(
             save_path=os.path.join(self.model_dir, "classifier"),
@@ -109,7 +109,7 @@ class LaCATHODEOracle:
             print(f"Error loading file: {e}")
             return
 
-        # 1. Prepare Inputs
+        # Prepare Inputs
         # Assumption: Inference file has [Mass, Features..., (Label?)]
         # If it's a blackbox, it might not have a label.
         # We assume standard format: Col 0 is Mass.
@@ -123,17 +123,17 @@ class LaCATHODEOracle:
         else:
             x_raw = data[:, 1:] # Assume all remaining are features
 
-        # 2. Preprocess (Using the restored processor)
+        # Preprocess (Using the restored processor)
         x_scaled = self.processor.transform(x_raw).astype(np.float32)
         # Scale the Mass (Condition)
         m_scaled = self.processor.transform_condition(m_raw).astype(np.float32)
 
-        # 3. Flow Transform (Data -> Latent Z)
+        # Flow Transform (Data -> Latent Z)
         print("Transforming to Latent Space...")
         z_inference = self.flow_model.transform(x_scaled, m=m_scaled)
 
         # --- SAFETY FIX STARTS HERE ---
-        # 4. Check for NaNs/Infs in Latent Space
+        # Check for NaNs/Infs in Latent Space
         # This prevents the ValueError from crashing the script
         valid_mask = np.all(np.isfinite(z_inference), axis=1)
         n_invalid = len(z_inference) - np.sum(valid_mask)
@@ -145,7 +145,7 @@ class LaCATHODEOracle:
             print(f"WARNING: {n_invalid} events produced Infinity/NaN in latent space.")
             print("         Assigning default score 0.0 to these events.")
 
-        # 5. Classifier (Latent Z -> Anomaly Score)
+        # Classifier (Latent Z -> Anomaly Score)
         # Only process valid events to avoid crash
         if np.any(valid_mask):
             z_valid = z_inference[valid_mask]
@@ -161,7 +161,7 @@ class LaCATHODEOracle:
         
         # --- SAFETY FIX ENDS HERE ---
 
-        # 6. Save
+        # Save
         output_path = os.path.join(self.model_dir, save_name)
         np.save(output_path, final_scores)
         print(f"Done! Scores saved to: {output_path}")

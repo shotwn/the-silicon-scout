@@ -224,8 +224,14 @@ class LaCATHODEProcessor(BaseEstimator, TransformerMixin):
         # Apply Logit ONLY to Ratios [0, 1]
         for i in self.logit_indices:
             # Clip to avoid log(0) or division by zero
-            X_new[:, i] = np.clip(X_new[:, i], self.epsilon, 1.0 - self.epsilon)
+            # 
+            #X_new[:, i] = np.clip(X_new[:, i], self.epsilon, 1.0 - self.epsilon)
+            # Max clipping to at least 0.99 to avoid extreme logit values
+            X_new[:, i] = np.clip(X_new[:, i], self.epsilon, 1.0 - max(100 * self.epsilon, 0.01))
             X_new[:, i] = np.log(X_new[:, i] / (1.0 - X_new[:, i]))
+
+            # Safeguard: If any values are still exactly 0 or 1 after clipping (unlikely), nudge them
+            X_new[:, i] = np.clip(X_new[:, i], -4.0, 4.0)
 
         # DO NOT Apply Log to Mass or dR (Columns 0, 1, 4). 
         # Leave them linear so negative mass_diff doesn't crash everything.

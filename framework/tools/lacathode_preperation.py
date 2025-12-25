@@ -334,6 +334,13 @@ class LaCATHODEPreperation:
 
         # Load unlabeled data (Label defaults to 0 usually, or doesn't matter)
         data = self.load_to_numpy(self.input_unlabeled, label_type='background')
+
+        # Filter non-finite events before splitting
+        initial_count = len(data)
+        data = data[np.all(np.isfinite(data), axis=1)]
+        dropped = initial_count - len(data)
+        if dropped > 0:
+            print(f"Dropped {dropped} non-finite events from raw data.")
         
         # Shuffle and Split
         # This handles the random seed, shuffling, and index slicing
