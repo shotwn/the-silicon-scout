@@ -65,7 +65,8 @@ class LaCATHODEOracle:
             save_path=self.model_dir, 
             num_inputs=len(self.processor.use_indices), 
             epochs=0, 
-            verbose=False
+            verbose=False,
+            batch_norm=False,  # Match training config
         )
         self.flow_model.load_best_model()
 
@@ -94,7 +95,7 @@ class LaCATHODEOracle:
             save_path=os.path.join(self.model_dir, "classifier"),
             n_inputs=z_train.shape[1], 
             epochs=0, 
-            verbose=False
+            verbose=False,
         )
         self.classifier.load_best_model()
         print("Oracle Ready.\n")

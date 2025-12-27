@@ -183,6 +183,10 @@ class LaCATHODETrainer:
             verbose=True,
             # Standard is 1e-3; 1e-4 is much safer for stability.
             # learning_rate=1e-4
+            # --- FIX STARTS HERE ---
+            batch_norm=False,    # <--- CRITICAL: Disable the unstable legacy batch norm
+            lr=1e-5,             # <--- FORCE 1e-5. 1e-4 is still too fast for un-normalized data.
+            # --- FIX ENDS HERE ---
         )
         
         if load:

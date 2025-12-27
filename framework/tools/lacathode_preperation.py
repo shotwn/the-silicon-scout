@@ -33,10 +33,16 @@ parser.add_argument('--validation_fraction', type=float, default=0.33,
                     help='Fraction of data to use for validation')
 
 # For defining the signal region (SR) window
-parser.add_argument('--min_mass', type=float, default=3.2,
+parser.add_argument('--side_band_min', type=float, default=2.5,
+                    help='Minimum mass for Sideband (SB) region in TeV')
+
+parser.add_argument('--min_mass', type=float, default=3.3,
                     help='Minimum mass for Signal Region (SR) window in TeV')
-parser.add_argument('--max_mass', type=float, default=3.9,
+parser.add_argument('--max_mass', type=float, default=3.8,
                     help='Maximum mass for Signal Region (SR) window in TeV')
+
+parser.add_argument('--side_band_max', type=float, default=4.0,
+                    help='Maximum mass for Sideband (SB) region in TeV')
 
 args = parser.parse_args()
 
@@ -92,7 +98,13 @@ class LaCATHODEPreperation:
         self.run_mode = args.get('run_mode', 'training')  # 'training' or 'inference'
 
         self.min_mass = args.get('min_mass', 3.3)
-        self.max_mass = args.get('max_mass', 3.7)
+        self.max_mass = args.get('max_mass', 3.8)
+        self.side_band_min = args.get('side_band_min', 2.5)
+        self.side_band_max = args.get('side_band_max', 4.0)
+
+        if self.side_band_min >= self.min_mass or self.side_band_max <= self.max_mass:
+            print(f"{self.side_band_min} {self.min_mass} {self.max_mass} {self.side_band_max}")
+            raise ValueError("Sideband extremes must be outside the Signal Region window.")
 
         self.feature_dictionary = lacathode_event_dictionary.tags
 
@@ -199,7 +211,7 @@ class LaCATHODEPreperation:
             print(f"Error loading data from {input_file}: {e}")
             return None
 
-        return numpy_array
+        return numpy_array[:event_index] # Return only populated rows
     
     def shuffle(self, data_array):
         """
@@ -238,6 +250,16 @@ class LaCATHODEPreperation:
         outermask = ~innermask
         
         return data[innermask], data[outermask]
+    
+    def cut_sideband_extremes(self, data):
+        """
+        Cuts events with m_jj outside the sideband extremes
+        """
+        mjj_col = 0
+        
+        mask = (data[:, mjj_col] > self.side_band_min) & (data[:, mjj_col] < self.side_band_max)
+        
+        return data[mask]
     
     def save_numpy(self, data_array, output_file):
         """
@@ -286,6 +308,9 @@ class LaCATHODEPreperation:
         
         # Combine and Shuffle
         combined = np.vstack((bg, sig))
+
+        # Cut sideband extremes
+        combined = self.cut_sideband_extremes(combined)
 
         # Shuffle and Split
         # This handles the random seed, shuffling, and index slicing
@@ -341,6 +366,9 @@ class LaCATHODEPreperation:
         dropped = initial_count - len(data)
         if dropped > 0:
             print(f"Dropped {dropped} non-finite events from raw data.")
+
+        # Cut sideband extremes
+        data = self.cut_sideband_extremes(data)
         
         # Shuffle and Split
         # This handles the random seed, shuffling, and index slicing
