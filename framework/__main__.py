@@ -4,9 +4,12 @@ import gradio as gr
 import json
 import uuid
 import gc
+import os
+import argparse
 
 from framework.rag_engine import RAGEngine
 from framework.orchestrator_agent import OrchestratorAgent
+from framework.analytics_agent import AnalyticsAgent
 from framework.utilities.cuda_ram_debug import log_cuda_memory
 
 max_memory = {
@@ -40,10 +43,9 @@ class Framework:
         # Trigger Ingestion (Only processes new files)
         self.rag_engine.ingest_files("articles")
 
-        self.orchestrator_agent = OrchestratorAgent(
-            model=self.model,
-            tokenizer=self.tokenizer,
-            initial_messages=[
+        # Initial messages per agent
+        self.default_initial_messages = {
+            "OrchestratorAgent": [
                 {
                     "role": "system", "content": "You are an orchestrator agent part of a Particle Physics Anomaly Detection System. "
                     "Your task is to orchestrate different specialized agents to analyze data and provide insights."
@@ -52,10 +54,79 @@ class Framework:
                     "After response, check if the file exists using the appropriate tool. Ask user if they want to proceed with data preprocessing using FastJet."
                 }
             ],
+            "AnalyticsAgent": [
+                {
+                    "role": "system", "content": "You are an analytics agent specialized in processing particle physics data files. "
+                    "Wait for tool calls from the orchestrator agent and respond with the results of your processing."
+                }
+            ],
+        }
+
+        # Resume logic
+        resume_job_id = kwargs.get('resume_job_id', None)
+        resume_job_data = self.get_resume_job_data(resume_job_id)
+        """
+        self.orchestrator_agent = OrchestratorAgent(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            initial_messages=self.get_initial_messages(
+                agent="OrchestratorAgent",
+                resume_job_data=resume_job_data
+            ),
             rag_engine=self.rag_engine,
             model_loader=self.load_model,
             model_unloader=self.unload_model
         )
+        """
+        self.analytics_agent = AnalyticsAgent(
+            model=self.model,
+            tokenizer=self.tokenizer,
+            initial_messages=self.get_initial_messages(
+                agent="AnalyticsAgent",
+                resume_job_data=resume_job_data
+            ),
+            rag_engine=self.rag_engine,
+            model_loader=self.load_model,
+            model_unloader=self.unload_model
+        )
+    
+    def get_resume_job_data(self, resume_job_id: str):
+        if resume_job_id:
+            print(f"Resuming session from Job ID: {resume_job_id}")
+            result_path = f"jobs/completed/{resume_job_id}.json"
+            
+            if os.path.exists(result_path):
+                with open(result_path, "r") as f:
+                    data = json.load(f)
+                
+                return data
+            else:
+                print("Job result file not found!")
+        
+        return None
+
+    def get_initial_messages(self, agent, resume_job_data=None):
+        if (
+            resume_job_data and 
+            resume_job_data.get("original_state") and 
+            resume_job_data["original_state"].get("agent_identifier") == agent
+        ):
+            # Resume from previous state
+            print(f"Restoring messages for {agent} from resume data.")
+            initial_messages = resume_job_data["original_state"]["messages"]
+
+            # Inject tool result from previous run
+            tool_result_msg = {
+                "role": "tool",
+                "content": resume_job_data["tool_result"],
+            }
+
+            initial_messages.append(tool_result_msg)
+
+            return initial_messages
+        else:
+            # Fresh start
+            return self.default_initial_messages.get(agent, [])
 
     def load_model(self):
         print("Framework: Loading model reference...")
@@ -100,13 +171,14 @@ class Framework:
 
             log_cuda_memory("CUDA Memory After unloading model for heavy tool")
     
-    def chat_function(self, user_input, chat_history):
+    def chat_function(self, user_input, chat_history={}, no_yield=False):
         message_id = uuid.uuid4().hex
-        parsed_generator = self.orchestrator_agent.respond(user_input, message_id, chat_history)
+        parsed_generator = self.analytics_agent.respond(user_input, message_id, chat_history)
 
         for multiple_parsed in parsed_generator:
             response = []
             for parsed in multiple_parsed:
+                print(f"Framework: Parsed Response Step: {parsed}")
                 if parsed["thinking"]:
                     response.append(gr.ChatMessage(
                         role="assistant",
@@ -137,29 +209,50 @@ class Framework:
                         metadata={"id": message_id}
                     ))
 
-            yield response
+            if no_yield:
+                return response
+            
+            if response:
+                yield response
 
     def run_interactive(self):
+        initial_gradio_history = self.analytics_agent.messages_to_gradio_history()
+
         with gr.Blocks(fill_height=True) as demo:
             chatbot = gr.Chatbot(
                 type="messages",
                 scale=1
             )
 
-            chatbot.clear(fn=lambda: self.orchestrator_agent.messages.clear())
+            chatbot.clear(fn=lambda: self.analytics_agent.messages.clear())
 
             gr.ChatInterface(
                 fn=self.chat_function,
-                title="Interactive Chat with Orchestrator Model",
-                description="Chat interface for interacting with the orchestrator model.",
+                title="Interactive Chat with Analytics Agent",
+                description="Chat interface for interacting with the analytics agent.",
                 type="messages",
                 chatbot=chatbot,
             )
 
+            # AUTO-RESUME TRIGGER
+            # If we are resuming, we want the bot to look at the Tool Result 
+            # (which is the last message) and generate an answer immediately.
+            if self.analytics_agent.messages and self.analytics_agent.messages[-1]['role'] == 'tool':
+                def auto_trigger():
+                    # Pass an empty user string, the agent handles the rest
+                    yield from self.chat_function("", chat_history={})
+                
+                # Queue this to run immediately on load
+                demo.load(auto_trigger, outputs=[chatbot])
+
         demo.launch(share=False)
 
 if __name__ == "__main__":
-    framework = Framework(base_model_name='Qwen/Qwen3-4B')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resume", type=str, help="Job ID to resume from")
+    args = parser.parse_args()
+
+    framework = Framework(base_model_name='Qwen/Qwen3-4B', resume_job_id=args.resume)
     framework.run_interactive()
 
     """

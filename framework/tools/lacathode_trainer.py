@@ -103,11 +103,17 @@ class LaCATHODETrainer:
 
         self.processor = LaCATHODEProcessor()
 
+        self.toolout_response = []
+    
+    def log_toolout(self, message):
+        self.toolout_response.append(message)
+        print(message)
+
     def load_data(self):
         """
         Loads the SR (Inner) and SB (Outer) data created by the preparation script.
         """
-        print(f"--- Loading Data from {self.data_dir} ---")
+        self.log_toolout(f"--- Loading Data from {self.data_dir} ---")
         try:
             if args.inference_mode:
                 # In inference mode, we only need the inference files
@@ -127,15 +133,15 @@ class LaCATHODETrainer:
                 self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_val.npy"))
                 self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_test.npy"))
             
-            print(f"Loaded Outer Train: {self.outer_train.shape}")
-            print(f"Loaded Inner Train: {self.inner_train.shape}")
+            self.log_toolout(f"Loaded Outer Train: {self.outer_train.shape}")
+            self.log_toolout(f"Loaded Inner Train: {self.inner_train.shape}")
         except FileNotFoundError as e:
-            print(f"Error loading data: {e}")
+            self.log_toolout(f"Error loading data: {e}")
             sys.exit(1)
 
 
     def prepare_flow_inputs(self):
-        print("--- Preprocessing Flow Inputs ---")
+        self.log_toolout("--- Preprocessing Flow Inputs ---")
         
         # 1. Extract Raw Features
         x_train_raw = self.outer_train[:, 1:-1]
@@ -160,11 +166,12 @@ class LaCATHODETrainer:
         self.x_outer_train, self.m_outer_train = self.processor.sanitize(self.x_outer_train, self.m_outer_train)
         self.x_outer_val, self.m_outer_val     = self.processor.sanitize(self.x_outer_val, self.m_outer_val)
 
-        print(f"Processed Train Shape: {self.x_outer_train.shape}")
+        self.log_toolout(f"Processed Train Shape: {self.x_outer_train.shape}")
         if len(self.x_outer_val) == 0:
-             raise ValueError("Validation set is empty after processing! Check logic.")
+            self.log_toolout("Error: Validation set is empty after processing! Check logic.")
+            raise ValueError("Validation set is empty after processing! Check logic.")
 
-        print("Flow inputs prepared successfully.")
+        self.log_toolout("Flow inputs prepared successfully.")
 
     def train_flow(self, load=False, epochs=100):
         """
@@ -172,7 +179,7 @@ class LaCATHODETrainer:
         Trains a Conditional Normalizing Flow on the Sideband.
         It learns to map complex feature distributions to a simple Gaussian.
         """
-        print("--- Initializing Normalizing Flow ---")
+        self.log_toolout("--- Initializing Normalizing Flow ---")
         num_inputs = self.x_outer_train.shape[1]
         
         self.flow_model = ConditionalNormalizingFlow(
@@ -190,20 +197,20 @@ class LaCATHODETrainer:
         )
         
         if load:
-            print("Loading existing Flow model...")
+            self.log_toolout("Loading existing Flow model...")
             self.flow_model.load_best_model()
         else:
-            print(f"Training Flow for {epochs} max epochs...")
+            self.log_toolout(f"Training Flow for {epochs} max epochs...")
             # Note: The fit method in sk_cathode handles the training loop
             # We override epochs if provided, otherwise use internal defaults
             self.flow_model.fit(
                 self.x_outer_train, self.m_outer_train,
                 self.x_outer_val, self.m_outer_val
             )
-            print("Flow training complete.")
+            self.log_toolout("Flow training complete.")
 
     def transform_to_latent(self):
-        print("--- Transforming Signal Region Data to Latent Space ---")
+        self.log_toolout("--- Transforming Signal Region Data to Latent Space ---")
         
         x_inner_train = self.processor.transform(self.inner_train[:, 1:-1]).astype(np.float32)
         x_inner_val   = self.processor.transform(self.inner_val[:, 1:-1]).astype(np.float32)
@@ -218,7 +225,7 @@ class LaCATHODETrainer:
         self.z_train = self.processor.sanitize(self.z_train)
         self.z_val = self.processor.sanitize(self.z_val)
         
-        print(f"Latent Train Shape (Cleaned): {self.z_train.shape}")
+        self.log_toolout(f"Latent Train Shape (Cleaned): {self.z_train.shape}")
 
     def prepare_classifier_data(self):
         """
@@ -227,7 +234,7 @@ class LaCATHODETrainer:
         Class 1: Real Data transformed to latent space (contains Signal + Background)
         Class 0: Synthetic Background (sampled directly from Normal Distribution)
         """
-        print("--- Preparing Classifier Data ---")
+        self.log_toolout("--- Preparing Classifier Data ---")
         
         # Generate Synthetic Background (Class 0)
         # Since Flow targets Normal(0,1), we just sample from numpy's randn
@@ -268,7 +275,7 @@ class LaCATHODETrainer:
         High score = Probability of being Real Data (and not Gaussian noise),
         which implies it is likely Signal.
         """
-        print("--- Initializing Classifier ---")
+        self.log_toolout("--- Initializing Classifier ---")
         self.classifier = NeuralNetworkClassifier(
             save_path=os.path.join(self.model_dir, "classifier"),
             n_inputs=self.X_clf_train.shape[1],
@@ -278,18 +285,18 @@ class LaCATHODETrainer:
         )
         
         if load:
-            print("Loading existing Classifier...")
+            self.log_toolout("Loading existing Classifier...")
             self.classifier.load_best_model()
         else:
-            print(f"Training Classifier for {epochs} max epochs...")
+            self.log_toolout(f"Training Classifier for {epochs} max epochs...")
             self.classifier.fit(
                 self.X_clf_train, self.y_clf_train,
                 self.X_clf_val, self.y_clf_val
             )
-            print("Classifier training complete.")
+            self.log_toolout("Classifier training complete.")
 
     def evaluate(self, plot=False):
-        print("--- Evaluating Performance ---")
+        self.log_toolout("--- Evaluating Performance ---")
         
         true_labels = self.inner_test[:, -1]
         
@@ -300,18 +307,18 @@ class LaCATHODETrainer:
         try:
             x_test_scaled = self.processor.transform(x_test_raw)
         except ValueError as e:
-            print(f"Preprocessing error: {e}")
+            self.log_toolout(f"Preprocessing error: {e}")
             return
         
         m_test = self.processor.transform_condition(self.inner_test[:, 0:1]).astype(np.float32)
         
         # Transform to Latent Space (Flow Model)
-        print("Transforming test data to latent space...")
+        self.log_toolout("Transforming test data to latent space...")
         try:
             # This might generate NaNs/Infs for outliers
             z_test = self.flow_model.transform(x_test_scaled, m=m_test)
         except Exception as e:
-            print(f"Warning during flow transformation: {e}")
+            self.log_toolout(f"Warning during flow transformation: {e}")
             return
 
         # Sanitize Data
@@ -320,12 +327,12 @@ class LaCATHODETrainer:
         n_dropped = np.sum(~is_finite)
         
         if n_dropped > 0:
-            print(f"WARNING: Dropping {n_dropped} events due to Infinity/NaN in latent space.")
+            self.log_toolout(f"WARNING: Dropping {n_dropped} events due to Infinity/NaN in latent space.")
             z_test = z_test[is_finite]
             true_labels = true_labels[is_finite]
             
             if len(z_test) == 0:
-                print("Error: All events were dropped. Cannot evaluate.")
+                self.log_toolout("Error: All events were dropped. Cannot evaluate.")
                 return
 
         # Scale Latent Features
@@ -345,18 +352,18 @@ class LaCATHODETrainer:
         scores_clean = scores[mask]
         
         if len(y_clean) == 0:
-            print("No valid scores to evaluate.")
+            self.log_toolout("No valid scores to evaluate.")
             return
 
         fpr, tpr, _ = roc_curve(y_clean, scores_clean)
         roc_auc = auc(fpr, tpr)
         
-        print(f"\nResult: ROC AUC = {roc_auc:.4f}")
+        self.log_toolout(f"\nResult: ROC AUC = {roc_auc:.4f}")
         
         with np.errstate(divide='ignore', invalid='ignore'):
             sic = tpr / np.sqrt(fpr)
             max_sic = np.nanmax(sic)
-        print(f"Result: Max SIC = {max_sic:.4f}")
+        self.log_toolout(f"Result: Max SIC = {max_sic:.4f}")
 
         if plot:
             plt.figure()
@@ -367,29 +374,36 @@ class LaCATHODETrainer:
             plt.title('Anomaly Detection Performance')
             plt.legend(loc='lower right')
             plt.savefig('lacathode_roc.png')
-            print("Plot saved to lacathode_roc.png")
+            self.log_toolout("Plot saved to lacathode_roc.png")
         
 def main():
     trainer = LaCATHODETrainer(args.data_dir, args.model_dir)
-    
-    # Load Data
-    trainer.load_data()
-    
-    # Prepare & Train Flow (Background Model)
-    trainer.prepare_flow_inputs()
-    trainer.train_flow(load=args.load_flow, epochs=args.epochs_flow)
-    
-    # Transform Data to Latent Space
-    trainer.transform_to_latent()
-    
-    # Prepare Classifier Data (Mix Real vs Synthetic)
-    trainer.prepare_classifier_data()
-    
-    # Train Classifier (Anomaly Detector)
-    trainer.train_classifier(load=args.load_classifier, epochs=args.epochs_clf)
-    
-    # Evaluate
-    trainer.evaluate(plot=args.plot)
+    try:
+        # Load Data
+        trainer.load_data()
+        
+        # Prepare & Train Flow (Background Model)
+        trainer.prepare_flow_inputs()
+        trainer.train_flow(load=args.load_flow, epochs=args.epochs_flow)
+        
+        # Transform Data to Latent Space
+        trainer.transform_to_latent()
+        
+        # Prepare Classifier Data (Mix Real vs Synthetic)
+        trainer.prepare_classifier_data()
+        
+        # Train Classifier (Anomaly Detector)
+        trainer.train_classifier(load=args.load_classifier, epochs=args.epochs_clf)
+        
+        # Evaluate
+        trainer.evaluate(plot=args.plot)
+    except Exception as e:
+        trainer.log_toolout(f"An error occurred: {e}")
+        raise e
+    finally:
+        print("<TOOLOUT>")
+        print("\n".join(trainer.toolout_response))
+        print("</TOOLOUT>")
 
 if __name__ == "__main__":
     main()

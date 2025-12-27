@@ -6,6 +6,9 @@ import threading
 import json
 import gc
 import torch
+import os
+import uuid
+import time
 
 from transformers import AutoModelForCausalLM, TextIteratorStreamer
 
@@ -31,10 +34,93 @@ class LocalAgent:
 
         self.heavy_tools = []  # To be populated with get_tools or manually
         self.tools = self.get_tools()
+        self.async_tools = self.get_async_tools()
+
+    def save_state(self, job_id, tool_name, tool_args):
+        """Persist state to disk for async processing"""
+        os.makedirs("jobs/pending", exist_ok=True)
+        
+        state_data = {
+            "job_id": job_id,
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+            "messages": self.messages, # Saves full conversation context
+            "agent_config": {
+                "base_model": "Qwen/Qwen3-4B" # Add relevant config to restore later
+            },
+            "agent_identifier": self.__class__.__name__
+        }
+        
+        filepath = f"jobs/pending/{job_id}.json"
+        with open(filepath, "w") as f:
+            json.dump(state_data, f, indent=2)
+        return filepath
     
     def get_tools(self):
         # Define specialized agents/tools here
         return []
+    
+    def get_async_tools(self):
+        return []
+    
+    def messages_to_gradio_history(self):
+        """
+        Reconstructs the chat history from self.messages to match the 
+        exact format used in the live chat_function generator.
+        """
+        import gradio as gr # Imported locally to avoid dependency issues if not at top level
+        
+        history = []
+        
+        for msg in self.messages:
+            role = msg["role"]
+            content = msg.get("content", "")
+            
+            if role == "user":
+                history.append(gr.ChatMessage(
+                    role="user",
+                    content=content
+                ))
+                
+            elif role == "assistant":
+                # We need to parse the raw stored text to separate Thinking vs Content vs Tool Calls
+                # so the history looks identical to the live stream.
+                parsed = self.parse_response(content)
+                
+                # 1. Recreate Thinking Bubble
+                if parsed.get("thinking"):
+                    history.append(gr.ChatMessage(
+                        role="assistant",
+                        content=parsed["thinking"],
+                        metadata={"title": "Thinking"}
+                    ))
+                
+                # 2. Recreate Tool Call Bubble
+                if parsed.get("tool_call_json"):
+                    tool_name = parsed["tool_call_json"].get("name", "unknown_tool")
+                    history.append(gr.ChatMessage(
+                        role="assistant",
+                        content=f"Invoking tool... ({tool_name})",
+                        metadata={"title": "Tool Call"}
+                    ))
+                
+                # 3. Recreate Standard Content
+                if parsed.get("content"):
+                    history.append(gr.ChatMessage(
+                        role="assistant",
+                        content=parsed["content"]
+                    ))
+                    
+            elif role == "tool":
+                # Recreate Tool Result Bubble
+                history.append(gr.ChatMessage(
+                    role="assistant",
+                    content=f"Tool Result:\n{content}",
+                    metadata={"title": "Tool Result"}
+                ))
+                
+        return history
+
     
     def respond(self, user_input:str, message_id=None, chat_history=None) -> list:
         max_steps = 10
@@ -49,7 +135,38 @@ class LocalAgent:
 
             # Continue if there is a tool call
             if parsed["tool_call_json"] is not None:
-                # Run the tool call
+                tool_name = parsed["tool_call_json"].get("name")
+                tool_args = parsed["tool_call_json"].get("arguments", {})
+
+                # CHECK FOR ASYNC TOOL
+                print(f"Checking if tool {tool_name} is async...")
+                print(f"Async tools available: {[tool.__name__ for tool in self.async_tools]}")
+                async_tool_names = [tool.__name__ for tool in self.async_tools]
+                if tool_name in async_tool_names:
+                    job_id = uuid.uuid4().hex
+                    print(f"Async tool detected: {tool_name}. Suspending execution.")
+                    
+                    # 1. Save State
+                    self.save_state(job_id, tool_name, tool_args)
+                    
+                    # 2. Notify User
+                    yield previous_steps_parsed + [{
+                        "content": f"Job {job_id} queued for {tool_name}. Shutting down to save resources.",
+                        "tool_call_json": None,
+                        "thinking": "",
+                        "tool_result": None
+                    }]
+                    
+                    # Wait for the yield to propagate to the frontend
+                    time.sleep(2) 
+                    
+                    print("Exiting process for async tool execution.")
+                    os._exit(0)
+                    
+                    # 4. Stop the loop strictly
+                    return 
+
+                # Normal Sync Tool Execution
                 tool_result = self.run_tool_call(parsed)
 
                 # Append tool result to messages
@@ -78,7 +195,7 @@ class LocalAgent:
         prompt = self.tokenizer.apply_chat_template(
             self.messages,
             tokenize=False,
-            tools=self.tools,
+            tools=self.tools + self.async_tools,
             add_generation_prompt=True,
         )
 
@@ -169,15 +286,27 @@ class LocalAgent:
 
         content = response
 
-        if thinking_token in response and thinking_end_token in response:
+        if thinking_token in response:
             start_idx = response.index(thinking_token) + len(thinking_token)
-            end_idx = response.index(thinking_end_token)
+            try:
+                end_idx = response.index(thinking_end_token)
+            except ValueError:
+                # If no end tag, take till end of response
+                # This happens during streaming before end tag is generated
+                end_idx = len(response)
+
             thinking_content = response[start_idx:end_idx].strip()
             content = response[end_idx + len(thinking_end_token):].strip()
 
-        if tool_call_token in response and tool_call_end_token in response:
+        if tool_call_token in response:
             start_idx = response.index(tool_call_token) + len(tool_call_token)
-            end_idx = response.index(tool_call_end_token)
+            try:
+                end_idx = response.index(tool_call_end_token)
+            except ValueError:
+                # If no end tag, take till end of response
+                # This happens during streaming before end tag is generated
+                end_idx = len(response)
+
             tool_call_content = response[start_idx:end_idx].strip()
             content = content[end_idx + len(tool_call_end_token):].strip()
             print("Tool call content detected:", tool_call_content)
