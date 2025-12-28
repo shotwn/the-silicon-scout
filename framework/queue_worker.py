@@ -4,36 +4,40 @@ import time
 import subprocess
 import sys
 
-from framework.tools.worker_tools import fastjet_tool
+from framework.tools.worker_tools import fastjet_tool, lacathode_preparation_tool, \
+    lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool
 
 TOOL_REGISTRY = {
     "fastjet_tool": fastjet_tool,
-    # "another_tool_name": another_tool_function
+    "lacathode_preparation_tool": lacathode_preparation_tool,
+    "lacathode_training_tool": lacathode_training_tool,
+    "lacathode_oracle_tool": lacathode_oracle_tool,
+    "lacathode_report_generator_tool": lacathode_report_generator_tool,
 }
 
-PENDING_DIR = "jobs/pending"
-COMPLETED_DIR = "jobs/completed"
+PENDING_DIR = os.path.join("jobs", "pending")
+COMPLETED_DIR = os.path.join("jobs", "completed")
+LOG_DIR = os.path.join("jobs", "logs")
 os.makedirs(COMPLETED_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Toggle this to True/False as needed, or control via env var
+DEBUG_CACHE_MODE = True
 
 def execute_tool(name, args):
     print(f"Worker: Received task '{name}' with args: {args}")
     
     if name not in TOOL_REGISTRY:
-        return f"Error: Tool '{name}' is not registered in the worker."
+        raise ValueError(f"Error: Tool '{name}' is not registered in the worker.")
     
     # Get the function
     tool_func = TOOL_REGISTRY[name]
     
     # Execute with unpacked arguments
-    try:
-        print(f"Worker: Executing tool function '{name}'...")
-        print(f"Worker: Tool function args: {args}")
-        result = tool_func(**args)
-        return result
-    except TypeError as e:
-        return f"Argument Error: {str(e)}"
-    except Exception as e:
-        return f"Execution Error: {str(e)}"
+    print(f"Worker: Executing tool function '{name}'...")
+    print(f"Worker: Tool function args: {args}")
+    result = tool_func(**args)
+    return result
 
 def wake_up_bot(job_id):
     """
@@ -54,6 +58,47 @@ def wake_up_bot(job_id):
         cwd=os.getcwd() # Ensure we launch from the correct root
     )
 
+def find_cached_result(tool_name, tool_args):
+    """
+    Scans completed jobs to find an exact match for tool_name and tool_args.
+    Returns the previous result if found, otherwise None.
+    """
+    if not os.path.exists(COMPLETED_DIR):
+        return None
+
+    print(f"Debug Cache: Scanning for previous runs of {tool_name}...")
+    
+    # Iterate over all completed job files
+    for fname in os.listdir(COMPLETED_DIR):
+        if not fname.endswith(".json"):
+            continue
+            
+        fpath = os.path.join(COMPLETED_DIR, fname)
+        try:
+            with open(fpath, "r") as f:
+                cached_data = json.load(f)
+                
+            # Check if valid structure
+            if "original_state" not in cached_data:
+                continue
+
+            cached_state = cached_data["original_state"]
+            
+            # Check for exact match (Name + Args)
+            # comparing dicts directly works in Python (order doesn't matter)
+            # check status to ensure it was a successful run
+            if (cached_state.get("tool_name") == tool_name and 
+                cached_state.get("tool_args") == tool_args and
+                cached_data.get("status") == "success"):
+                
+                print(f"Debug Cache: HIT found in {fname}! Skipping execution.")
+                return cached_data.get("tool_result")
+                
+        except (json.JSONDecodeError, OSError):
+            continue
+            
+    return None
+
 def run_worker():
     print("Worker started. Monitoring jobs/pending/ ...")
     while True:
@@ -70,16 +115,54 @@ def run_worker():
                 except json.JSONDecodeError:
                     continue # File might be writing still
                 
-                print(f"Processing Job: {data['job_id']}")
+                current_job_id = data['job_id']
+                tool_name = data["tool_name"]
+                tool_args = data["tool_args"]
+                
+                print(f"Processing Job: {current_job_id}")
 
-                # Run the Tool
-                result = execute_tool(data["tool_name"], data["tool_args"])
+                result = None
+                
+                # --- DEBUG CACHE MODE START ---
+                if DEBUG_CACHE_MODE:
+                    cached_result = find_cached_result(tool_name, tool_args)
+                    if cached_result is not None:
+                        result = cached_result
+                        print("Worker: Used cached result.")
+                # --- DEBUG CACHE MODE END ---
+
+                # If no cache hit (or mode disabled), run for real
+                status = "success"
+                if result is None:
+                    try:
+                        result = execute_tool(tool_name, tool_args)
+                    except Exception as e:
+                        result = f"Error during tool execution: {e}"
+                        status = "error"
+
+                if result:
+                    # Save stdout to log file for reference
+                    log_path = os.path.join(LOG_DIR, f"{current_job_id}_run_log.txt")
+                    with open(log_path, "w") as log_file:
+                        log_file.write(result)
+                
+                # If <tool_result> exists in stdout, capture only that part
+                if result and isinstance(result, str):
+                    start_tag = "<tool_result>"
+                    end_tag = "</tool_result>"
+                    start_idx = result.find(start_tag)
+                    end_idx = result.find(end_tag)
+                    if start_idx != -1 and end_idx != -1:
+                        inside = result[start_idx + len(start_tag):end_idx].strip()
+                        # Keep the tags because API expects them
+                        result = f"<tool_result>\n{inside}\n</tool_result>"
+
                 
                 # Create Result Packet
                 result_data = {
                     "original_state": data,
                     "tool_result": result,
-                    "status": "success" # You can refine this based on result content
+                    "status": status,
                 }
                 
                 # Save to Completed

@@ -6,6 +6,8 @@ import uuid
 import gc
 import os
 import argparse
+import threading
+import time
 
 from framework.rag_engine import RAGEngine
 from framework.orchestrator_agent import OrchestratorAgent
@@ -57,7 +59,21 @@ class Framework:
             "AnalyticsAgent": [
                 {
                     "role": "system", "content": "You are an analytics agent specialized in processing particle physics data files. "
-                    "Wait for tool calls from the orchestrator agent and respond with the results of your processing."
+                    "You have access to tools like LaCATHODE Trainer and Report Generator to analyze data files and generate reports. "
+                    "Make sure to use tool calls in correct order to achieve the best results. "
+                    "You can run training and report part multiple times with different parameters and merge or compare the results into a final report. "
+                    "But make sure to not overwrite previous runs unless specified. "
+                    "\nA usual run would be: "
+                    "1. fastjet_tool "
+                    "2. lacathode_preperation_tool "
+                    "3. lacathode_trainer_tool "
+                    "4. lacathode_oracle_tool "
+                    "5. lacathode_report_generator_tool "
+                    "\nIMPORTANT: Use list_any_cwd_folder tool to check for files and directories in current working directory when needed. "
+                    "\nIMPORTANT: When you are not sure about something, ask the user for clarification before diving in long thinking or tool calls."
+                    "\nIMPORTANT: Focus ONLY on the immediate next step. Do not try to plan or validate arguments for future tools (like step 2 or 3) "
+                    "until the current tool execution is complete and you have the results. "
+                    "Execute the first necessary tool immediately."
                 }
             ],
         }
@@ -89,6 +105,12 @@ class Framework:
             model_loader=self.load_model,
             model_unloader=self.unload_model
         )
+
+        # If resuming, process the last tool result offline in a separate thread
+        # This ensures Gradio launches immediately while the agent works in the background
+        resume_thread = threading.Thread(target=self.process_offline_resume)
+        resume_thread.daemon = True # Ensures thread cleans up when main process exits
+        resume_thread.start()
     
     def get_resume_job_data(self, resume_job_id: str):
         if resume_job_id:
@@ -127,6 +149,23 @@ class Framework:
         else:
             # Fresh start
             return self.default_initial_messages.get(agent, [])
+    
+    def process_offline_resume(self):
+        # Wait a moment to ensure Gradio has launched
+        time.sleep(2)
+        # Check if the last message in history is a Tool Result
+        if self.analytics_agent.messages and self.analytics_agent.messages[-1]['role'] == 'tool':
+            print(">>> Auto-Resume detected: Processing Tool Result offline...")
+            
+            # Run the agent loop with empty input to process the result
+            # We iterate over the generator to force execution, but ignore the output
+            generator = self.analytics_agent.respond("", message_id=uuid.uuid4().hex)
+            try:
+                for _ in generator:
+                    pass
+                print(">>> Offline processing complete.")
+            except SystemExit:
+                pass # Handle async tool exits gracefully
 
     def load_model(self):
         print("Framework: Loading model reference...")
@@ -171,16 +210,20 @@ class Framework:
 
             log_cuda_memory("CUDA Memory After unloading model for heavy tool")
     
-    def chat_function(self, user_input, chat_history={}, no_yield=False):
+    def chat_function(self, user_input, chat_history):
         message_id = uuid.uuid4().hex
+
+        # Create the user message object manually to append to history
+        user_msg = gr.ChatMessage(role="user", content=user_input)
+
+        # Get the generator from the agent
         parsed_generator = self.analytics_agent.respond(user_input, message_id, chat_history)
 
         for multiple_parsed in parsed_generator:
-            response = []
+            response_bubbles = []
             for parsed in multiple_parsed:
-                print(f"Framework: Parsed Response Step: {parsed}")
                 if parsed["thinking"]:
-                    response.append(gr.ChatMessage(
+                    response_bubbles.append(gr.ChatMessage(
                         role="assistant",
                         content=f"{parsed['thinking']}",
                         metadata={"title": "Thinking", "id": message_id}
@@ -189,37 +232,38 @@ class Framework:
                 if parsed["tool_call_json"]:
                     tool_name = parsed["tool_call_json"].get("name", "unknown_tool")
 
-                    response.append(gr.ChatMessage(
+                    response_bubbles.append(gr.ChatMessage(
                         role="assistant",
                         content=f"Invoking tool... ({tool_name})",
                         metadata={"title": "Tool Call", "id": message_id}
                     ))
 
                 if parsed.get("tool_result"):
-                    response.append(gr.ChatMessage(
+                    response_bubbles.append(gr.ChatMessage(
                         role="assistant", 
                         content=f"Tool Result:\n{parsed['tool_result']}",
                         metadata={"title": "Tool Result", "id": message_id}
                     ))
                 
                 if parsed["content"]:
-                    response.append(gr.ChatMessage(
+                    response_bubbles.append(gr.ChatMessage(
                         role="assistant", 
                         content=parsed["content"],
                         metadata={"id": message_id}
                     ))
-
-            if no_yield:
-                return response
             
-            if response:
-                yield response
+            if response_bubbles:
+                yield chat_history + [user_msg] + response_bubbles
 
+    def get_latest_history(self):
+        """Helper to fetch the current agent state for the UI"""
+        return self.analytics_agent.messages_to_gradio_history()
+    
     def run_interactive(self):
-        initial_gradio_history = self.analytics_agent.messages_to_gradio_history()
-
+        initial_gradio_history = self.get_latest_history()
         with gr.Blocks(fill_height=True) as demo:
             chatbot = gr.Chatbot(
+                value=initial_gradio_history,
                 type="messages",
                 scale=1
             )
@@ -237,14 +281,16 @@ class Framework:
             # AUTO-RESUME TRIGGER
             # If we are resuming, we want the bot to look at the Tool Result 
             # (which is the last message) and generate an answer immediately.
+            """
             if self.analytics_agent.messages and self.analytics_agent.messages[-1]['role'] == 'tool':
                 def auto_trigger():
                     # Pass an empty user string, the agent handles the rest
-                    yield from self.chat_function("", chat_history={})
+                    yield from self.chat_function("")
                 
                 # Queue this to run immediately on load
                 demo.load(auto_trigger, outputs=[chatbot])
-
+            """
+            demo.load(fn=self.get_latest_history, outputs=chatbot)
         demo.launch(share=False)
 
 if __name__ == "__main__":

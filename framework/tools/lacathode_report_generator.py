@@ -12,7 +12,7 @@ parser.add_argument("--scores_file", type=str, required=True,
 parser.add_argument("--output_file", type=str, default="llm_enhanced_report.txt",
                     help="Path to save the generated report")
 parser.add_argument("--print_report", action="store_true",
-                    default=True,
+                    default=False,
                     help="If set, print the report to console as well")
 parser.add_argument("--top_percentile", type=float, default=99.0,
                     help="Percentile threshold to define anomaly candidates")
@@ -150,14 +150,19 @@ def generate_report(**args):
 
     # Save
     if print_report:
-        print("<toolout>")
+        print("<tool_result>")
         print("\n".join(report))
-        print("</toolout>")
+        print("</tool_result>")
 
     if output_file:    
         with open(output_file, "w") as f:
             f.write("\n".join(report))
         
+    if not print_report:
+        print("<tool_result>")
+        print(f"Enhanced Report saved to {output_file}")
+        print("</tool_result>")
+    
     print(f"Enhanced Report saved to {output_file}")
 
 if __name__ == "__main__":

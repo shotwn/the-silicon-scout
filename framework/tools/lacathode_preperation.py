@@ -46,6 +46,10 @@ parser.add_argument('--side_band_max', type=float, default=4.0,
 
 args = parser.parse_args()
 
+GRAPHS_DIR = 'toolout/graphs/'
+if not os.path.exists(GRAPHS_DIR):
+    os.makedirs(GRAPHS_DIR, exist_ok=True)
+
 """
 Input data
 Expected input is the output of import_and_fastjet.py
@@ -291,7 +295,7 @@ class LaCATHODEPreperation:
             axs[i // columns][i % columns].set_ylabel('Counts')
             axs[i // columns][i % columns].grid()
 
-        plt.savefig(f'graphs/feature_distribution_{data_label}.png')
+        plt.savefig(f'toolout/graphs/feature_distribution_{data_label}.png')
 
     def training_mode(self):
         """
@@ -308,6 +312,13 @@ class LaCATHODEPreperation:
         
         # Combine and Shuffle
         combined = np.vstack((bg, sig))
+
+        # Filter non-finite events before splitting
+        initial_count = len(combined)
+        combined = combined[np.all(np.isfinite(combined), axis=1)]
+        dropped = initial_count - len(combined)
+        if dropped > 0:
+            print(f"Dropped {dropped} non-finite events from raw data.")
 
         # Cut sideband extremes
         combined = self.cut_sideband_extremes(combined)
@@ -334,6 +345,14 @@ class LaCATHODEPreperation:
         self.save_numpy(tr_in, os.path.join(self.output_dir, 'innerdata_train.npy'))
         self.save_numpy(val_in, os.path.join(self.output_dir, 'innerdata_val.npy'))
 
+        # This is the file we use to "Prove" the model (calculate ROC/SIC)
+        self.save_numpy(test_in, os.path.join(self.output_dir, 'innerdata_test.npy'))
+
+        combined_inner = np.vstack((tr_in, val_in, test_in))
+        self.save_numpy(combined_inner, os.path.join(self.output_dir, 'innerdata_combined.npy'))
+        combined_outer = np.vstack((tr_out, val_out, test_out))
+        self.save_numpy(combined_outer, os.path.join(self.output_dir, 'outerdata_combined.npy'))
+
         # Graph features for debugging
         self.graph_all_features(tr_out, data_label='outerdata_train')
         self.graph_all_features(val_out, data_label='outerdata_val')
@@ -342,10 +361,15 @@ class LaCATHODEPreperation:
         self.graph_all_features(val_in, data_label='innerdata_val')
         self.graph_all_features(test_in, data_label='innerdata_test')
         
-        # This is the file we use to "Prove" the model (calculate ROC/SIC)
-        self.save_numpy(test_in, os.path.join(self.output_dir, 'innerdata_test.npy')) 
 
+
+        print("<tool_result>")
         print(f"Saved training files: train/val/test splits of innerdata_*.npy and outerdata_*.npy")
+        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_train.npy')}")
+        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_train.npy')}")
+        print(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_val.npy')} and {os.path.join(self.output_dir, 'innerdata_val.npy')}")
+        print(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_test.npy')} and {os.path.join(self.output_dir, 'innerdata_test.npy')}")
+        print("</tool_result>")
 
     def inference_mode(self):
         """
@@ -394,27 +418,32 @@ class LaCATHODEPreperation:
         
         # Save
         # 'outerdata_inference_train.npy' -> Use this to train the Flow model on real data sidebands
-        self.save_numpy(tr_out, os.path.join(self.output_dir, 'outerdata_inference_train.npy'))
-        self.save_numpy(val_out, os.path.join(self.output_dir, 'outerdata_inference_val.npy'))
+        self.save_numpy(tr_out, os.path.join(self.output_dir, 'outerdata_train.npy'))
+        self.save_numpy(val_out, os.path.join(self.output_dir, 'outerdata_val.npy'))
         
         # 'innerdata_inference_train.npy' -> This is where the anomalies are hidden!
         # The model will generate synthetic background to compare against THIS file.
-        self.save_numpy(tr_in, os.path.join(self.output_dir, 'innerdata_inference_train.npy'))
-        self.save_numpy(val_in, os.path.join(self.output_dir, 'innerdata_inference_val.npy'))
+        self.save_numpy(tr_in, os.path.join(self.output_dir, 'innerdata_train.npy'))
+        self.save_numpy(val_in, os.path.join(self.output_dir, 'innerdata_val.npy'))
 
         # Test set is just a copy of validation set in inference mode
-        self.save_numpy(test_in, os.path.join(self.output_dir, 'innerdata_inference_test.npy'))
-        self.save_numpy(test_out, os.path.join(self.output_dir, 'outerdata_inference_test.npy'))
+        self.save_numpy(test_in, os.path.join(self.output_dir, 'innerdata_test.npy'))
+        self.save_numpy(test_out, os.path.join(self.output_dir, 'outerdata_test.npy'))
 
         # Save combined file to run Oracle inference on
-        combined_inference = np.vstack((tr_in, val_in))
-        self.save_numpy(combined_inference, os.path.join(self.output_dir, 'innerdata_inference_combined.npy'))
+        combined_inner = np.vstack((tr_in, val_in))
+        self.save_numpy(combined_inner, os.path.join(self.output_dir, 'innerdata_combined.npy'))
+
+        combined_outer = np.vstack((tr_out, val_out))
+        self.save_numpy(combined_outer, os.path.join(self.output_dir, 'outerdata_combined.npy'))
         
+        print("<tool_result>")
         print(f"Saved inference files.")
-        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_inference_train.npy')}")
-        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_inference_train.npy')}")
-        print(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_inference_val.npy')} and {os.path.join(self.output_dir, 'innerdata_inference_val.npy')}")
-        print(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_inference_test.npy')} and {os.path.join(self.output_dir, 'innerdata_inference_test.npy')}")
+        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_train.npy')}")
+        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_train.npy')}")
+        print(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_val.npy')} and {os.path.join(self.output_dir, 'innerdata_val.npy')}")
+        print(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_test.npy')} and {os.path.join(self.output_dir, 'innerdata_test.npy')}")
+        print("</tool_result>")
 
     def run(self):
         if self.run_mode == 'training':

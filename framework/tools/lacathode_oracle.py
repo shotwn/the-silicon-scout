@@ -26,7 +26,12 @@ class LaCATHODEOracle:
         self.latent_scaler = StandardScaler()
 
         print("--- Initializing Oracle State ---")
+        self.tool_out = []
         self._restore_state()
+    
+    def add_tool_out(self, result):
+        self.tool_out.append(result)
+        print(result)
 
     def _restore_state(self):
         """
@@ -105,9 +110,9 @@ class LaCATHODEOracle:
         
         try:
             data = np.load(inference_file_path)
-            print(f"Loaded {len(data)} events.")
+            self.add_tool_out(f"Loaded {len(data)} events.")
         except Exception as e:
-            print(f"Error loading file: {e}")
+            self.add_tool_out(f"Error loading file: {e}")
             return
 
         # Prepare Inputs
@@ -143,8 +148,8 @@ class LaCATHODEOracle:
         final_scores = np.zeros(len(data), dtype=np.float32)
 
         if n_invalid > 0:
-            print(f"WARNING: {n_invalid} events produced Infinity/NaN in latent space.")
-            print("         Assigning default score 0.0 to these events.")
+            self.add_tool_out(f"WARNING: {n_invalid} events produced Infinity/NaN in latent space.")
+            self.add_tool_out("         Assigning default score 0.0 to these events.")
 
         # Classifier (Latent Z -> Anomaly Score)
         # Only process valid events to avoid crash
@@ -165,8 +170,8 @@ class LaCATHODEOracle:
         # Save
         output_path = os.path.join(self.model_dir, save_name)
         np.save(output_path, final_scores)
-        print(f"Done! Scores saved to: {output_path}")
-        print(f"Mean Score: {np.nanmean(final_scores):.4f} (Higher > 0.5 = More Anomalous)")
+        self.add_tool_out(f"Successfully done. Scores saved to: {output_path}")
+        self.add_tool_out(f"Mean Score: {np.nanmean(final_scores):.4f} (Higher > 0.5 = More Anomalous)")
 
 
 if __name__ == "__main__":
@@ -182,5 +187,12 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
-    oracle = LaCATHODEOracle(args.data_dir, args.model_dir)
-    oracle.predict(args.inference_file, args.output_file)
+    try:
+        oracle = LaCATHODEOracle(args.data_dir, args.model_dir)
+        oracle.predict(args.inference_file, args.output_file)
+    except Exception as e:
+        print(f"Error during Oracle inference: {e}")
+    finally:
+        print("<tool_result>")
+        print('\n'.join(oracle.tool_out))
+        print("</tool_result>")

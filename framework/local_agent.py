@@ -9,6 +9,7 @@ import torch
 import os
 import uuid
 import time
+import re
 
 from transformers import AutoModelForCausalLM, TextIteratorStreamer
 
@@ -31,6 +32,7 @@ class LocalAgent:
         self.rag_engine = rag_engine
         self.model_loader = model_loader
         self.model_unloader = model_unloader
+        self.sanitize_messages = True
 
         self.heavy_tools = []  # To be populated with get_tools or manually
         self.tools = self.get_tools()
@@ -192,8 +194,22 @@ class LocalAgent:
         if user_input and user_input.strip() != "":
             self.messages.append({"role": "user", "content": user_input, "id": message_id})
 
+        # Sanitize thinking content from previous assistant messages
+        # This prevents filling up the context with old thinking tags
+        if self.sanitize_messages:
+            prompt_input_messages = []
+            for msg in self.messages:
+                if msg["role"] == "assistant":
+                    # Remove any existing <think>...</think> tags
+                    content = msg.get("content", "")
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+                    msg["content"] = content.strip()
+                prompt_input_messages.append(msg)
+        else:
+            prompt_input_messages = self.messages
+
         prompt = self.tokenizer.apply_chat_template(
-            self.messages,
+            prompt_input_messages,
             tokenize=False,
             tools=self.tools + self.async_tools,
             add_generation_prompt=True,
@@ -225,6 +241,12 @@ class LocalAgent:
             "streamer": streamer,
             "pad_token_id": self.tokenizer.eos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
+            # SEMANTIC REPETITION LOOP WAS ENCOUNTERED
+            # SO GREEDY DECODING WAS DISABLED
+            "do_sample": True,      # Enable sampling to break deterministic loops
+            "temperature": 0.3,     # Low temperature for more focused, less "creative" logic
+            "repetition_penalty": 1.15, # Penalize repeating phrases like "Wait, maybe"
+            "top_p": 0.9,
         }
 
         def generate():
@@ -243,11 +265,11 @@ class LocalAgent:
 
             #no yield response chunks for now, just return full response at the end
      
-
+        # Clear thinking content from stored message
         self.messages.append({"role": "assistant", "content": response, "id": message_id})
 
         parsed = self.parse_response(response)
-        print("\n\n====== Parsed response:", parsed, "\n\n")
+        #print("\n\n====== Parsed response:", parsed, "\n\n")
 
         # Make sure thread has finished
         thread.join()
@@ -310,7 +332,12 @@ class LocalAgent:
             tool_call_content = response[start_idx:end_idx].strip()
             content = content[end_idx + len(tool_call_end_token):].strip()
             print("Tool call content detected:", tool_call_content)
-            tool_call_json = json.loads(tool_call_content)
+            try:
+                tool_call_json = json.loads(tool_call_content)
+            except json.JSONDecodeError:
+                # This happens when streaming before full JSON is generated
+                tool_call_json = None
+
             print("Parsed tool call JSON:", tool_call_json)
             # Here you would handle the tool call execution
 

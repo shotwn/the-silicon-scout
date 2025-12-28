@@ -66,11 +66,6 @@ parser.add_argument("--epochs_clf", type=int, default=50,
                     help="Number of epochs for Classifier training")
 parser.add_argument("--plot", action="store_true",
                     help="Generate ROC curve plot after training")
-parser.add_argument("--inference_mode", action="store_true",
-                    help="Run in inference mode using 'innerdata_inference_x.npy'")
-
-parser.add_argument("--save_scores", type=str, default="inference_scores.npy",
-                    help="Filename to save the resulting anomaly scores")
 
 args = parser.parse_args()
 
@@ -115,33 +110,30 @@ class LaCATHODETrainer:
         """
         self.log_toolout(f"--- Loading Data from {self.data_dir} ---")
         try:
-            if args.inference_mode:
-                # In inference mode, we only need the inference files
-                self.outer_train = np.load(os.path.join(self.data_dir, "outerdata_inference_train.npy"))
-                self.outer_val = np.load(os.path.join(self.data_dir, "outerdata_inference_val.npy"))
-                
-                self.inner_train = np.load(os.path.join(self.data_dir, "innerdata_inference_train.npy"))
-                self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_inference_val.npy"))
-                self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_inference_test.npy"))
-            else:
-                # Load Sideband Data (used to train Flow)
-                self.outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
-                self.outer_val = np.load(os.path.join(self.data_dir, "outerdata_val.npy"))
-                
-                # Load Signal Region Data (used to train Classifier)
-                self.inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
-                self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_val.npy"))
-                self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_test.npy"))
+            # Load Sideband Data (used to train Flow)
+            self.outer_train = np.load(os.path.join(self.data_dir, "outerdata_train.npy"))
+            self.outer_val = np.load(os.path.join(self.data_dir, "outerdata_val.npy"))
             
+            # Load Signal Region Data (used to train Classifier)
+            self.inner_train = np.load(os.path.join(self.data_dir, "innerdata_train.npy"))
+            self.inner_val = np.load(os.path.join(self.data_dir, "innerdata_val.npy"))
+            self.inner_test = np.load(os.path.join(self.data_dir, "innerdata_test.npy"))
+
             self.log_toolout(f"Loaded Outer Train: {self.outer_train.shape}")
             self.log_toolout(f"Loaded Inner Train: {self.inner_train.shape}")
+
+            # LLM Context: Provide distribution info to confirm data quality
+            n_sig = np.sum(self.inner_test[:, -1] == 1)
+            n_bkg = np.sum(self.inner_test[:, -1] == 0)
+            self.log_toolout(f"Test Set Composition: {len(self.inner_test)} events ({int(n_sig)} Signal, {int(n_bkg)} Background)")
+            self.log_toolout(f"Data range check (Mass): min={self.inner_train[:, 0].min():.2f}, max={self.inner_train[:, 0].max():.2f}")
         except FileNotFoundError as e:
             self.log_toolout(f"Error loading data: {e}")
             sys.exit(1)
 
 
     def prepare_flow_inputs(self):
-        self.log_toolout("--- Preprocessing Flow Inputs ---")
+        print("--- Preprocessing Flow Inputs ---")
         
         # 1. Extract Raw Features
         x_train_raw = self.outer_train[:, 1:-1]
@@ -179,7 +171,12 @@ class LaCATHODETrainer:
         Trains a Conditional Normalizing Flow on the Sideband.
         It learns to map complex feature distributions to a simple Gaussian.
         """
-        self.log_toolout("--- Initializing Normalizing Flow ---")
+        print("--- Initializing Normalizing Flow ---")
+
+        self.log_toolout(f"Flow Settings: Inputs={self.x_outer_train.shape[1]}, Context=Mass")
+        self.log_toolout(f"Flow Training Config: Epochs={epochs if not load else '0 (Skipped)'}, " 
+                         f"Load State={'True' if load else 'False'}")
+        
         num_inputs = self.x_outer_train.shape[1]
         
         self.flow_model = ConditionalNormalizingFlow(
@@ -210,7 +207,7 @@ class LaCATHODETrainer:
             self.log_toolout("Flow training complete.")
 
     def transform_to_latent(self):
-        self.log_toolout("--- Transforming Signal Region Data to Latent Space ---")
+        print("--- Transforming Signal Region Data to Latent Space ---")
         
         x_inner_train = self.processor.transform(self.inner_train[:, 1:-1]).astype(np.float32)
         x_inner_val   = self.processor.transform(self.inner_val[:, 1:-1]).astype(np.float32)
@@ -226,6 +223,12 @@ class LaCATHODETrainer:
         self.z_val = self.processor.sanitize(self.z_val)
         
         self.log_toolout(f"Latent Train Shape (Cleaned): {self.z_train.shape}")
+
+        z_mean = np.mean(self.z_train, axis=0)
+        z_std = np.std(self.z_train, axis=0)
+        self.log_toolout(f"Latent Space Diagnostics (Goal: Mean~0, Std~1):")
+        self.log_toolout(f"  > Actual Mean: {np.mean(z_mean):.4f} (avg across dims)")
+        self.log_toolout(f"  > Actual Std:  {np.mean(z_std):.4f} (avg across dims)")
 
     def prepare_classifier_data(self):
         """
@@ -275,7 +278,7 @@ class LaCATHODETrainer:
         High score = Probability of being Real Data (and not Gaussian noise),
         which implies it is likely Signal.
         """
-        self.log_toolout("--- Initializing Classifier ---")
+        print("--- Initializing Classifier ---")
         self.classifier = NeuralNetworkClassifier(
             save_path=os.path.join(self.model_dir, "classifier"),
             n_inputs=self.X_clf_train.shape[1],
@@ -285,10 +288,10 @@ class LaCATHODETrainer:
         )
         
         if load:
-            self.log_toolout("Loading existing Classifier...")
+            print("Loading existing Classifier...")
             self.classifier.load_best_model()
         else:
-            self.log_toolout(f"Training Classifier for {epochs} max epochs...")
+            print(f"Training Classifier for {epochs} max epochs...")
             self.classifier.fit(
                 self.X_clf_train, self.y_clf_train,
                 self.X_clf_val, self.y_clf_val
@@ -296,7 +299,7 @@ class LaCATHODETrainer:
             self.log_toolout("Classifier training complete.")
 
     def evaluate(self, plot=False):
-        self.log_toolout("--- Evaluating Performance ---")
+        print("--- Evaluating Performance ---")
         
         true_labels = self.inner_test[:, -1]
         
@@ -359,6 +362,11 @@ class LaCATHODETrainer:
         roc_auc = auc(fpr, tpr)
         
         self.log_toolout(f"\nResult: ROC AUC = {roc_auc:.4f}")
+
+        if roc_auc < 0.5:
+            self.log_toolout("Interpretation: Model performance is near random guessing (0.5). Training may have failed.")
+        elif roc_auc > 0.8:
+            self.log_toolout("Interpretation: Strong separation detected between Signal and Background.")
         
         with np.errstate(divide='ignore', invalid='ignore'):
             sic = tpr / np.sqrt(fpr)
@@ -401,9 +409,9 @@ def main():
         trainer.log_toolout(f"An error occurred: {e}")
         raise e
     finally:
-        print("<TOOLOUT>")
+        print("<tool_result>")
         print("\n".join(trainer.toolout_response))
-        print("</TOOLOUT>")
+        print("</tool_result>")
 
 if __name__ == "__main__":
     main()
