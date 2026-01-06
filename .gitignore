@@ -1,4 +1,5 @@
 .env
+.venv
 *.h5
 output/
 lora_lhco/

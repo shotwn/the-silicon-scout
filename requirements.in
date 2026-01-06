@@ -1,7 +1,5 @@
 # Cuda - Windows enabled PyTorch and related libraries
 # For Cuda 12.9 and python 3.12
-torch @ https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-win_amd64.whl
-torchvision @ https://download.pytorch.org/whl/cu129/torchvision-0.23.0%2Bcu129-cp312-cp312-win_amd64.whl
 h5py
 pandas
 matplotlib
@@ -11,12 +9,9 @@ awkward
 transformers
 peft
 datasets
-bitsandbytes-windows
-bitsandbytes
 protobuf
 sentencepiece
 scikit-learn
-pandas
 
 # For documentation generation
 mkdocs
@@ -37,3 +32,18 @@ pymupdf4llm
 # For vector database (RAG)
 chromadb
 sentence-transformers
+
+# --- Windows Specific (CUDA 12.9) ---
+# Only install these on Windows
+torch @ https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'
+torchvision @ https://download.pytorch.org/whl/cu129/torchvision-0.23.0%2Bcu129-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'
+bitsandbytes-windows ; sys_platform == 'win32'
+
+# --- macOS Specific (MPS/CPU) ---
+# On Mac, we download the standard PyTorch (which supports Metal/MPS)
+# We match the version (2.8.0) to keep it consistent with your Windows build
+torch==2.8.0 ; sys_platform == 'darwin'
+torchvision==0.23.0 ; sys_platform == 'darwin'
+
+# Use the standard bitsandbytes for non-Windows (or exclude if not supported on Mac)
+bitsandbytes ; sys_platform != 'win32'
