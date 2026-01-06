@@ -5,6 +5,8 @@ Utilities for debugging CUDA RAM usage in PyTorch.
 import gc, torch, sys, types, inspect
 
 def log_cuda_memory(message=""):
+    if not torch.cuda.is_available():
+        return
     print(f"[CUDA MEMORY] {message}")
     print(f"  Peak Allocated: {torch.cuda.max_memory_allocated() / (1024 ** 3):.2f} GB")
     print(f"  Allocated: {torch.cuda.memory_allocated() / (1024 ** 3):.2f} GB")

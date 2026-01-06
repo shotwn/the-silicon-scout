@@ -34,6 +34,9 @@ class LocalAgent:
         self.model_unloader = model_unloader
         self.sanitize_messages = True
 
+        # Make sure only one thread accesses the model at a time
+        self.model_lock = threading.Lock()
+
         self.heavy_tools = []  # To be populated with get_tools or manually
         self.tools = self.get_tools()
         self.async_tools = self.get_async_tools()
@@ -237,23 +240,26 @@ class LocalAgent:
         generation_kwargs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "max_new_tokens": int(32768 / 8), # Limit to 4k tokens, for RAM saving, adjust as needed
+            "max_new_tokens": int(512), # Limit to 512 tokens, for RAM saving, adjust as needed
             "streamer": streamer,
             "pad_token_id": self.tokenizer.eos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
-            # SEMANTIC REPETITION LOOP WAS ENCOUNTERED
-            # SO GREEDY DECODING WAS DISABLED
-            "do_sample": True,      # Enable sampling to break deterministic loops
-            "temperature": 0.3,     # Low temperature for more focused, less "creative" logic
-            "repetition_penalty": 1.15, # Penalize repeating phrases like "Wait, maybe"
+            # Enable following in NVIDIA CUDA
+            # If semantic repetition is an issue, enable these with adjusted params
+            "do_sample": True,      # Enables sampling to break deterministic loops, proven buggy in apple silicon MPS
+            "temperature": 0.7,     # Low temperature for more focused, less "creative" logic
+                                    # Too low (0.3) can crash in apple silicon MPS
+            "repetition_penalty": 1.0, # 1.15 in nvidia CUDA, 1.0 in apple silicon MPS to avoid crashes
             "top_p": 0.9,
+            "top_k": 40,
+            
         }
 
         def generate():
-            with torch.no_grad():
+            with self.model_lock, torch.no_grad():
                 self.model.generate(**generation_kwargs)
 
-        thread = threading.Thread(target=generate)
+        thread = threading.Thread(target=generate, daemon=True)
         thread.start()
         
         response = ""
@@ -289,9 +295,10 @@ class LocalAgent:
         
         # Thorough cleanup
         gc.collect()
-        torch.cuda.empty_cache()
-        if hasattr(torch.cuda, "ipc_collect"):
-            torch.cuda.ipc_collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if hasattr(torch.cuda, "ipc_collect"):
+                torch.cuda.ipc_collect()
 
         return parsed
 

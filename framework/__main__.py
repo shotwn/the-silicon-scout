@@ -14,24 +14,33 @@ from framework.orchestrator_agent import OrchestratorAgent
 from framework.analytics_agent import AnalyticsAgent
 from framework.utilities.cuda_ram_debug import log_cuda_memory
 
-max_memory = {
-    0: "7.2GB",
-    "cpu": "20GB"
-}
-
 class Framework:
     def __init__(self, *args, **kwargs):
-        if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-            compute_dtype = torch.bfloat16
-        else:
-            compute_dtype = torch.float16
+        # Flag to control BitsAndBytes usage
+        allow_bnb = False
 
-        self.bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True, # Keeps VRAM low
-            bnb_4bit_quant_type="nf4",      # Best for pre-trained weights
-            bnb_4bit_compute_dtype=compute_dtype 
-        )
+        # Determine device and dtype
+        if torch.cuda.is_available():
+            allow_bnb = True
+            self.device = torch.device("cuda")
+            self.dtype = torch.float16
+        elif torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            self.dtype = torch.float16
+        else:
+            self.device = torch.device("cpu")
+            self.dtype = torch.float16
+        
+        # Disable BitsAndBytes on Mac entirely (it's slow and causes issues)
+        if not allow_bnb:
+            self.bnb_config = None
+        else:
+            self.bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=self.dtype 
+            )
         
         self.base_model_name = kwargs.get('base_model_name', 'Qwen/Qwen3-4B')
         
@@ -40,10 +49,11 @@ class Framework:
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.base_model_name)
         # Initialize RAG Engine
-        self.rag_engine = RAGEngine()
+        #self.rag_engine = RAGEngine()
+        self.rag_engine = None  # Disable RAG for now
 
         # Trigger Ingestion (Only processes new files)
-        self.rag_engine.ingest_files("articles")
+        #self.rag_engine.ingest_files("articles")
 
         # Initial messages per agent
         self.default_initial_messages = {
@@ -170,13 +180,36 @@ class Framework:
     def load_model(self):
         print("Framework: Loading model reference...")
         log_cuda_memory("CUDA Memory Before loading model")
+        max_memory = None
+        device_map = None
+        if torch.cuda.is_available():
+            max_memory = {0: "7GB"}
+            device_map = "auto"
+        elif torch.backends.mps.is_available():
+            max_memory = {"mps": "14GB"}
+            device_map = {"": torch.device("mps")}
+        
+        
+        # Check if we are on Mac/MPS to determine config
+        if torch.backends.mps.is_available():
+            quantization_config = None
+            #attn_implementation = "sdpa"  # sdpa is faster but can cause inf errors 
+            attn_implementation = "eager"
+        else:
+            quantization_config = self.bnb_config
+            attn_implementation = "eager"
+
         self.model = AutoModelForCausalLM.from_pretrained(
             self.base_model_name,
-            device_map="auto",
+            device_map=device_map,
             max_memory=max_memory,
-            quantization_config=self.bnb_config,  # replaces load_in_4bit argument
+            attn_implementation=attn_implementation,
+            quantization_config=quantization_config,
+            torch_dtype=self.dtype
         )
         log_cuda_memory("CUDA Memory After loading model")
+
+        self.model.eval()
 
         return self.model
     
