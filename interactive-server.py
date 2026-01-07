@@ -10,7 +10,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import BitsAndBytesConfig, TextIteratorStreamer
 from numeric_fusion_adapter import NumericFusionAdapter
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# Mac support for MPS
+device = "mps" if torch.backends.mps.is_available() else "cpu"
+# GPU support
+if torch.cuda.is_available():
+    device = "cuda"
 
 base_model_name = "mistralai/Mistral-7B-Instruct-v0.3"
 lora_checkpoint = "lora_lhco/checkpoint-*"  # path to LoRA weights
