@@ -246,23 +246,45 @@ class LocalAgent:
         generation_kwargs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "max_new_tokens": int(4096*2), # Limit to 4096 tokens, for RAM saving, adjust as needed
+            "max_new_tokens": int(2048), # Limit to 4096 tokens, for RAM saving, adjust as needed
             "streamer": streamer,
             "pad_token_id": self.tokenizer.eos_token_id,
-            "eos_token_id": [self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids("<|im_end|>")],
+            "eos_token_id": [
+                self.tokenizer.eos_token_id, 
+                self.tokenizer.convert_tokens_to_ids("<|im_end|>"),
+                self.tokenizer.convert_tokens_to_ids("<|im_start|>"),
+            ],
             # Enable following in NVIDIA CUDA
             # If semantic repetition is an issue, enable these with adjusted params
-            "do_sample": False,      # Enables sampling to break deterministic loops, proven buggy in apple silicon MPS
-            "temperature": 0.5,     # Low temperature for more focused, less "creative" logic
+            "do_sample": True,      # Enables sampling to break deterministic loops, proven buggy in apple silicon MPS
+            "temperature": 0.6,     # Low temperature for more focused, less "creative" logic
                                     # Too low (0.3) can crash in apple silicon MPS
-            #"repetition_penalty": 1.15, # 1.15 in nvidia CUDA, 1.0 in apple silicon MPS to avoid crashes
-            "top_p": 0.95, # nucleus sampling
-            "top_k": 50,   # top-k sampling
+            "repetition_penalty": 1.0, # 1.15 in nvidia CUDA, 1.0 in apple silicon MPS to avoid crashes
+            "top_p": 0.9, # nucleus sampling
+            "top_k": 0,   # top-k sampling
             
         }
-
+        
+        # Create a thread to run generation in the background
+        generation_thread = threading.Thread(
+            target=self.model.generate, 
+            kwargs=generation_kwargs
+        )
+        
+        # Start the generation
         with self.model_lock, torch.no_grad():
-            self.model.generate(**generation_kwargs)
+            generation_thread.start()
+
+            # Consume the streamer in the main thread
+            response = ""
+            for new_text in streamer:
+                response += new_text
+                print("Generated so far:", response)
+                parsed = self.parse_response(response, allow_tools=False)
+                yield parsed
+            
+            # Ensure thread finishes (good practice)
+            generation_thread.join()
 
         
         response = ""

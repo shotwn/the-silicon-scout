@@ -25,8 +25,9 @@ class Framework:
             self.device = torch.device("cuda")
             self.dtype = torch.float16
         elif torch.backends.mps.is_available():
+            allow_bnb = True
             self.device = torch.device("mps")
-            self.dtype = torch.bfloat16
+            self.dtype = torch.float16
         else:
             self.device = torch.device("cpu")
             self.dtype = torch.float16
