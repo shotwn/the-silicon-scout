@@ -20,3 +20,5 @@ trained_models/
 sk_cathode/
 graphs/
 toolout/
+jobs/
+debug_logs/

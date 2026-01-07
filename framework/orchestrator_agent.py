@@ -23,90 +23,6 @@ class OrchestratorAgent(LocalAgent):
       
             exists = os.path.exists(file_name)
             return f"File '{file_name}' exists: {exists}"
-        
-        def run_import_and_fastjet(input_file: str, min_pt: float, size_per_row: int) -> str:
-            """
-            Tool to run the data loading and preprocessing using FastJet.
-            Uses the 'import_and_fastjet.py' script located in 'framework/tools'.
-            Code can be read using the 'read_utility_code' tool with the file name 'import_and_fastjet.py'.
-
-            Args:
-                input_file: The name of the data file to process. Should be in .h5 format.
-                min_pt: The minimum transverse momentum for jets. Default is 20.0.
-                size_per_row: Number of data columns per row (excluding label). Default is 2100 as per LHCO2020 dataset.
-            Returns:
-                A string summarizing the preprocessing results.
-            """
-            command = [
-                f"{sys.executable}",
-                "framework/tools/import_and_fastjet.py",
-                "--input_file", input_file,
-                "--min_pt", str(min_pt),
-                "--size_per_row", str(size_per_row)
-            ]
-            try:
-                result = subprocess.run(command, capture_output=True, text=True, check=True, env=os.environ)
-                result_content = self.tool_result_processor("import_and_fastjet", result.stdout)
-                return f"Data preprocessing completed successfully. Output:\n{result_content}"
-            except subprocess.CalledProcessError as e:
-                return f"Data preprocessing failed. Error:\n{e.stderr}"
-            
-        def lacathode_preperation(
-                run_mode: str = "training",
-                input_background: str = None,
-                input_signal: str = None,
-                input_unlabelled: str = None, 
-                output_dir: str = None,
-                training_fraction: float = 0.33,
-                validation_fraction: float = 0.33,
-                min_mass: float = 3.3,
-                max_mass: float = 3.7
-        ) -> str:
-            """
-            Tool to run the LACathode data preparation script.
-            Input files are results of run_import_fastjet tool. JSONL format.
-            Training mode requires both background and signal files.
-            Inference mode requires unlabelled data file.
-            Code available at framework/tools/lacathode_preperation.py
-            Args:
-                run_mode: "training" or "inference"
-                input_background: Path to background data file (required for training mode)
-                input_signal: Path to signal data file (required for training mode)
-                input_unlabelled: Path to unlabelled data file (required for inference mode)
-                output_dir: Directory to save prepared data (default: "lacathode_input_data")
-                training_fraction: Fraction of data to use for training (default 0.33)
-                validation_fraction: Fraction of data to use for validation (default 0.33)
-                min_mass: Minimum mass for signal region (SR) window in TeV (default 3.3)
-                max_mass: Maximum mass for signal region (SR) window in TeV (default 3.7)
-            Returns:
-                A string summarizing the data preparation results.
-            """
-            command = [
-                f"{sys.executable}",
-                "framework/tools/lacathode_preperation.py",
-                "--run_mode", run_mode,
-            ]
-            if input_background:
-                command += ["--input_background", input_background]
-            if input_signal:
-                command += ["--input_signal", input_signal]
-            if input_unlabelled:
-                command += ["--input_unlabelled", input_unlabelled]
-            if output_dir:
-                command += ["--output_dir", output_dir]
-            command += [
-                "--training_fraction", str(training_fraction),
-                "--validation_fraction", str(validation_fraction),
-                "--min_mass", str(min_mass),
-                "--max_mass", str(max_mass)
-            ]
-            try:
-                result = subprocess.run(command, capture_output=True, text=True, check=True, env=os.environ)
-                result_content = self.tool_result_processor("lacathode_preperation", result.stdout)
-                return f"LACathode data preparation completed successfully. Output:\n{result_content}"
-            except subprocess.CalledProcessError as e:
-                return f"LACathode data preparation failed. Error:\n{e.stderr}"
-
 
         def list_articles_directory():
             """
@@ -157,7 +73,7 @@ class OrchestratorAgent(LocalAgent):
             except FileNotFoundError:
                 return f"Article file '{file_name}' not found."
         
-        def list_any_cwd_folder(folder_path: str) -> str:
+        def list_folders(folder_path: str) -> str:
             """
             Tool to list files in any specified folder in the current working directory.
             Args:
@@ -172,9 +88,9 @@ class OrchestratorAgent(LocalAgent):
             except FileNotFoundError:
                 return f"Directory '{folder_path}' not found."
         
-        def read_any_cwd_code(file_path: str, start_character: int = 0, end_character: int = 500) -> str:
+        def read_any_file(file_path: str, start_character: int = 0, end_character: int = 500) -> str:
             """
-            Tool to read the content of any cwd code file. Should end with .py extension.
+            Tool to read the content of any file. Should end with .py extension.
             Code files for available tools are Python scripts located in the 'framework/tools' directory.
             Maximum character range to read is 500 characters. To read beyond that, make multiple calls.
             
@@ -228,13 +144,23 @@ class OrchestratorAgent(LocalAgent):
             print(f"RAG Query: {search_query}")
             return self.rag_engine.query(search_query)
         
+        def delegate_to_analytics(instructions: str) -> str:
+            """
+            Delegates a physics analysis task to the Analytics Agent.
+            The Analytics Agent has access to training, oracle, and reporting tools.
+            
+            Args:
+                instructions: Detailed instructions for the task. 
+                              Example: "Using file *.h5, run full pipeline for mass 3.4-4.0 TeV"
+            """
+            # Uses the generic method from the parent class
+            return self.talk_to_peer("AnalyticsAgent", instructions)
+        
         tools = [
-            check_if_file_exists, 
-            run_import_and_fastjet, 
-            list_articles_directory, 
-            read_any_cwd_code, 
-            list_any_cwd_folder, 
-            lacathode_preperation
+            delegate_to_analytics,
+            list_folders,
+            read_any_file,
+            check_if_file_exists,
         ]
         if self.rag_engine:
             tools = tools + [query_knowledge_base]

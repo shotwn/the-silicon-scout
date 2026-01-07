@@ -40,6 +40,7 @@ class LocalAgent:
         self.heavy_tools = []  # To be populated with get_tools or manually
         self.tools = self.get_tools()
         self.async_tools = self.get_async_tools()
+        self.peers = {}
 
     def save_state(self, job_id, tool_name, tool_args):
         """Persist state to disk for async processing"""
@@ -80,11 +81,13 @@ class LocalAgent:
         for msg in self.messages:
             role = msg["role"]
             content = msg.get("content", "")
+            msg_id = msg.get("id")
             
             if role == "user":
                 history.append(gr.ChatMessage(
                     role="user",
-                    content=content
+                    content=content,
+                    metadata={"id": msg_id} # Keep message ID for reference
                 ))
                 
             elif role == "assistant":
@@ -97,7 +100,7 @@ class LocalAgent:
                     history.append(gr.ChatMessage(
                         role="assistant",
                         content=parsed["thinking"],
-                        metadata={"title": "Thinking"}
+                        metadata={"title": "Thinking", "id": msg_id}
                     ))
                 
                 # 2. Recreate Tool Call Bubble
@@ -106,14 +109,15 @@ class LocalAgent:
                     history.append(gr.ChatMessage(
                         role="assistant",
                         content=f"Invoking tool... ({tool_name})",
-                        metadata={"title": "Tool Call"}
+                        metadata={"title": "Tool Call", "id": msg_id}
                     ))
                 
                 # 3. Recreate Standard Content
                 if parsed.get("content"):
                     history.append(gr.ChatMessage(
                         role="assistant",
-                        content=parsed["content"]
+                        content=parsed["content"],
+                        metadata={"id": msg_id}
                     ))
                     
             elif role == "tool":
@@ -121,13 +125,13 @@ class LocalAgent:
                 history.append(gr.ChatMessage(
                     role="assistant",
                     content=f"Tool Result:\n{content}",
-                    metadata={"title": "Tool Result"}
+                    metadata={"title": "Tool Result", "id": msg_id}
                 ))
                 
         return history
 
     
-    def respond(self, user_input:str, message_id=None, chat_history=None) -> list:
+    def respond(self, user_input:str, message_id=None) -> list:
         max_steps = 10
         previous_steps_parsed = []
         while max_steps > 0:
@@ -218,9 +222,11 @@ class LocalAgent:
             add_generation_prompt=True,
         )
 
-        # Print the final prompt for debugging
-        print("\n\nFinal prompt to model:")
-        print(prompt, "\n\n")
+        # Log prompt for debugging
+        os.makedirs("debug_logs", exist_ok=True)
+        current_time = time.strftime("%Y%m%d_%H%M%S")
+        with open(f"debug_logs/debug_prompt_{current_time}.txt", "w") as f:
+            f.write(prompt)
 
         inputs = self.tokenizer(
             prompt,
@@ -240,33 +246,30 @@ class LocalAgent:
         generation_kwargs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "max_new_tokens": int(512), # Limit to 512 tokens, for RAM saving, adjust as needed
+            "max_new_tokens": int(4096*2), # Limit to 4096 tokens, for RAM saving, adjust as needed
             "streamer": streamer,
             "pad_token_id": self.tokenizer.eos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
+            "eos_token_id": [self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids("<|im_end|>")],
             # Enable following in NVIDIA CUDA
             # If semantic repetition is an issue, enable these with adjusted params
-            "do_sample": True,      # Enables sampling to break deterministic loops, proven buggy in apple silicon MPS
-            "temperature": 0.7,     # Low temperature for more focused, less "creative" logic
+            "do_sample": False,      # Enables sampling to break deterministic loops, proven buggy in apple silicon MPS
+            "temperature": 0.5,     # Low temperature for more focused, less "creative" logic
                                     # Too low (0.3) can crash in apple silicon MPS
-            "repetition_penalty": 1.0, # 1.15 in nvidia CUDA, 1.0 in apple silicon MPS to avoid crashes
-            "top_p": 0.9,
-            "top_k": 40,
+            #"repetition_penalty": 1.15, # 1.15 in nvidia CUDA, 1.0 in apple silicon MPS to avoid crashes
+            "top_p": 0.95, # nucleus sampling
+            "top_k": 50,   # top-k sampling
             
         }
 
-        def generate():
-            with self.model_lock, torch.no_grad():
-                self.model.generate(**generation_kwargs)
+        with self.model_lock, torch.no_grad():
+            self.model.generate(**generation_kwargs)
 
-        thread = threading.Thread(target=generate, daemon=True)
-        thread.start()
         
         response = ""
         for new_text in streamer:
             response += new_text
-            # print("Generated so far:", response, end="\r")
-            parsed = self.parse_response(response)
+            print("Generated so far:", response)
+            parsed = self.parse_response(response, allow_tools=False)
             yield parsed
 
             #no yield response chunks for now, just return full response at the end
@@ -276,33 +279,14 @@ class LocalAgent:
 
         parsed = self.parse_response(response)
         #print("\n\n====== Parsed response:", parsed, "\n\n")
-
-        # Make sure thread has finished
-        thread.join()
-
-        # Clear memory, in case there will be subsequent tool calls
-        try:
-            del generation_kwargs
-            del thread
-            del inputs
-            del input_ids
-            del attention_mask
-            del streamer
-            del generate
-        except Exception as e:
-            print(e)
-            pass
-        
-        # Thorough cleanup
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            if hasattr(torch.cuda, "ipc_collect"):
-                torch.cuda.ipc_collect()
+        # Log final response
+        os.makedirs("debug_logs", exist_ok=True)
+        with open(f"debug_logs/debug_response_{current_time}.txt", "w") as f:
+            f.write(response)
 
         return parsed
 
-    def parse_response(self, response: str):
+    def parse_response(self, response: str, allow_tools=True) -> dict:
         # parsing thinking content and tool calls from the response
         thinking_token = "<think>"
         thinking_end_token = "</think>"
@@ -327,7 +311,7 @@ class LocalAgent:
             thinking_content = response[start_idx:end_idx].strip()
             content = response[end_idx + len(thinking_end_token):].strip()
 
-        if tool_call_token in response:
+        if tool_call_token in response and allow_tools:
             start_idx = response.index(tool_call_token) + len(tool_call_token)
             try:
                 end_idx = response.index(tool_call_end_token)
@@ -409,4 +393,48 @@ class LocalAgent:
             return result_content
         
         return result
+
+    def register_peer(self, name: str, agent_instance):
+        """
+        Registers another agent instance that this agent can communicate with.
+        """
+        self.peers[name] = agent_instance
+
+    def talk_to_peer(self, peer_name: str, message: str) -> str:
+        """
+        Generic method to send a message to a registered peer agent and wait for the full response.
+        This handles the complexity of consuming the other agent's generator.
+        """
+        if peer_name not in self.peers:
+            available = list(self.peers.keys())
+            return f"System Error: Agent '{peer_name}' is not known to me. Available peers: {available}"
+
+        target_agent = self.peers[peer_name]
+        print(f"\n[System] 🔄 {self.__class__.__name__} is delegating to {peer_name}...")
+
+        # Create a unique ID for this sub-task
+        task_id = uuid.uuid4().hex
+        
+        # Trigger the other agent's response loop
+        # We pass the message and get back a generator (streaming response)
+        response_generator = target_agent.respond(message, message_id=task_id)
+        
+        final_content = "No response generated."
+        
+        # We must consume the generator to let the other agent execute its tools
+        for step in response_generator:
+            # 'step' is a list of parsed chunks. We look at the latest state.
+            last_state = step[-1]
+            
+            # Optional: Log tool usage from the peer for debugging
+            if last_state.get("tool_call_json"):
+                tool_name = last_state["tool_call_json"].get("name", "unknown")
+                print(f"   ↳ [{peer_name}] Invoking tool: {tool_name}")
+            
+            # Update the final answer with the latest text content
+            if last_state.get("content"):
+                final_content = last_state["content"]
+
+        print(f"[System] ✅ {peer_name} finished task.\n")
+        return f"Response from {peer_name}:\n{final_content}"
     
