@@ -9,6 +9,7 @@ import time
 import re
 import ollama 
 
+from framework.logger import get_logger
 from framework.rag_engine import RAGEngine
 
 class LocalAgent:
@@ -28,6 +29,8 @@ class LocalAgent:
         self.tools = self.get_tools()
         self.async_tools = self.get_async_tools()
         self.peers = {}
+        self.pending_job_id = None
+        self.logger = get_logger(f"Agent-{self.__class__.__name__}")
 
     def save_state(self, job_id, tool_name, tool_args):
         """Persist state to disk for async processing"""
@@ -51,12 +54,95 @@ class LocalAgent:
         # Wait briefly to ensure file is written
         time.sleep(1)
         return filepath
+
+    def load_state_from_job(self, job_data):
+        if (
+            job_data and 
+            job_data.get("original_state") and 
+            job_data["original_state"].get("agent_identifier") == self.__class__.__name__
+        ):
+            self.logger.info(f"Restoring messages for {self.__class__.__name__} from resume data.")
+            history_from_job = job_data["original_state"]["messages"]
+            
+            # Simple resume logic: inject tool result
+            tool_call_id = uuid.uuid4().hex
+
+            # Get the last tool call made by this agent
+            last_tool_call_name = job_data["original_state"].get("tool_name", None)
+            
+            # Note: We need to append the result to conversation
+            # The last message in 'messages' should be the assistant's tool call
+            # We append the result as a 'tool' role message
+            
+            tool_result_msg = {
+                "role": "tool",
+                "content": job_data["tool_result"],
+                "id": tool_call_id,
+                "tool_name": last_tool_call_name,
+            }
+
+            history_from_job.append(tool_result_msg)
+            
+            self.messages = history_from_job
+    
+    def wait_for_tool_completion(self, job_id):
+        """Poll for tool completion, then resume generation."""
+        result_path = f"jobs/completed/{job_id}.json"
+        self.logger.info(f"Waiting for tool job completion: {job_id}")
+        while not os.path.exists(result_path):
+            time.sleep(3)  # Poll every 3 seconds
+        
+        with open(result_path, "r") as f:
+            try:
+                result_data = json.load(f)
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"Error decoding JSON from {result_path}: {e}")
+                return
+        
+        self.logger.info(f"Tool job {job_id} completed. Loading result.")
+        
+        self.load_state_from_job(result_data)
+
+        yield from self.respond_to_tool_completion()
+    
+    def respond_to_tool_completion(self):
+        if self.messages and self.messages[-1]['role'] == 'tool':
+            # Trigger generation after loading tool result
+            self.logger.info("Resuming generation after tool result...")
+            generator = self.respond("", message_id=uuid.uuid4().hex)
+            
+            # Yield this back to caller
+            try:
+                for parsed in generator:
+                    yield parsed
+            except SystemExit:
+                pass
+
+            self.pending_job_id = None
     
     def get_tools(self):
         return []
     
     def get_async_tools(self):
         return []
+    
+    def unload_ollama_model(self):
+        """
+        Unloads the current Ollama model to free up VRAM.
+
+        Sending an empty string with keepalive=0 unloads the model.
+        """
+        self.logger.info(f"[System] Unloading Ollama model '{self.model_name}' to free up VRAM...")
+        try:
+            ollama.chat(
+                model=self.model_name,
+                messages=[],
+                stream=False,
+                keep_alive=0
+            )
+            self.logger.info("[System] Model unloaded successfully.")
+        except Exception as e:
+            self.logger.warning(f"[System] Error unloading model: {e}")
     
     def messages_to_gradio_history(self):
         """
@@ -115,36 +201,33 @@ class LocalAgent:
             
             # Finished the generation for this step
             previous_steps_parsed.append(parsed)
-            print("\n--- Step Parsed Output ---")
-            print(parsed)
 
             if parsed.get("tool_calls"):
                 for tool_call in parsed["tool_calls"]:
-                    print("Tool call detected in response:", parsed["tool_calls"])
                     tool_name = tool_call.function.name
                     tool_args = tool_call.function.arguments
-                    print(f"Preparing to call tool: {tool_name} with args: {tool_args}")
 
                     # CHECK FOR ASYNC TOOL
                     async_tool_names = [tool.__name__ for tool in self.async_tools]
                     if tool_name in async_tool_names:
                         timestamp = time.strftime("%Y%m%d_%H%M%S")
                         job_id = f"{timestamp}_{uuid.uuid4().hex}"
-                        print(f"Async tool detected: {tool_name}. Suspending execution.")
                         
+                        self.pending_job_id = job_id
+
                         self.save_state(job_id, tool_name, tool_args)
                         
                         yield previous_steps_parsed + [{
-                            "content": f"Job {job_id} queued for {tool_name}. Shutting down to save resources.",
-                            "tool_call_json": None,
+                            "content": f"Job {job_id} queued for {tool_name}. Waiting for completion...",
+                            "tool_calls": None,
                             "thinking": "",
                             "tool_result": None
                         }]
                         
-                        time.sleep(2) 
-                        print("Exiting process for async tool execution.")
-                        os._exit(0)
-                        return 
+                        self.unload_ollama_model()
+
+                        yield from self.wait_for_tool_completion(job_id)
+                        return  # Exit after resuming from async tool
 
                     # Normal Sync Tool Execution
                     tool_result = self.run_tool_call(tool_call)
@@ -183,7 +266,7 @@ class LocalAgent:
         # Since we use manual XML tool calling, we rely on the system prompt provided in initialization.
         # Ensure your system prompt in `__main__.py` still includes the tool definitions.
 
-        print(f"--- Sending request to Ollama ({self.model_name}) ---")
+        self.logger.info(f"--- Sending request to Ollama ({self.model_name}) ---")
         
         # Log prompt
         os.makedirs("debug_logs", exist_ok=True)
@@ -202,7 +285,8 @@ class LocalAgent:
                 "top_p": 0.9,
                 "num_ctx": 8192, # Adjust based on your VRAM
                 "stop": ["<|im_end|>", "<|im_start|>", "</s>"] # Stop tokens
-            }
+            },
+            keep_alive=300 # Keep model loaded for 5 minutes this is the default
         )
 
         response = {
@@ -278,7 +362,7 @@ class LocalAgent:
             else:
                 return f"Error: Unknown tool call format {type(tool_call_obj)}"
 
-            print(f"Executing tool call: {tool_name} with args: {tool_args}")
+            self.logger.info(f"Executing tool call: {tool_name} with args: {tool_args}")
             
             # Find and Execute Tool
             for tool in self.tools:
@@ -312,7 +396,7 @@ class LocalAgent:
             return f"System Error: Agent '{peer_name}' is not known."
 
         target_agent = self.peers[peer_name]
-        print(f"\n[System] 🔄 {self.__class__.__name__} is delegating to {peer_name}...")
+        self.logger.info(f"\n[System] 🔄 {self.__class__.__name__} is delegating to {peer_name}...")
         task_id = uuid.uuid4().hex
         
         response_generator = target_agent.respond(message, message_id=task_id)
@@ -323,5 +407,5 @@ class LocalAgent:
             if last_state.get("content"):
                 final_content = last_state["content"]
 
-        print(f"[System] ✅ {peer_name} finished task.\n")
+        self.logger.info(f"[System] ✅ {peer_name} finished task.\n")
         return f"Response from {peer_name}:\n{final_content}"

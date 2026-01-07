@@ -1,251 +1,263 @@
-import gradio as gr
-import json
-import uuid
 import os
-import argparse
-import threading
+import json
 import time
+import subprocess
+import sys
+import argparse
 
-# Removed transformers imports
-# from transformers import ... 
+from framework.tools.worker_tools import fastjet_tool, lacathode_preparation_tool, \
+    lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool
+from framework.logger import get_logger
 
-from framework.rag_engine import RAGEngine
-from framework.orchestrator_agent import OrchestratorAgent
-from framework.analytics_agent import AnalyticsAgent
-# from framework.utilities.cuda_ram_debug import log_cuda_memory # Optional, likely not needed for Ollama
+logger = get_logger("Worker")
 
-class Framework:
-    def __init__(self, *args, **kwargs):
-        # Default to a robust model available in Ollama
-        self.base_model_name = kwargs.get('base_model_name')
-        if not self.base_model_name:
-            raise ValueError("Base model name must be provided for Ollama models.")
-        
-        # We no longer load the model into Python memory
-        # self.model = None 
-        
-        # Initialize RAG Engine
-        self.rag_engine = None  # Disable RAG for now
+TOOL_REGISTRY = {
+    "fastjet_tool": fastjet_tool,
+    "lacathode_preparation_tool": lacathode_preparation_tool,
+    "lacathode_training_tool": lacathode_training_tool,
+    "lacathode_oracle_tool": lacathode_oracle_tool,
+    "lacathode_report_generator_tool": lacathode_report_generator_tool,
+}
 
-        # Initial messages per agent
-        self.default_initial_messages = {
-            "OrchestratorAgent": [
-                {
-                    "role": "system", 
-                    "content": (
-                        "You are a Senior Particle Physicist (The Scientist). "
-                        "You direct an Analyst Agent to find anomalies in collider data. "
-                        "Your Goal: Discover new physics anomalies with >3 sigma significance.\n\n"
-                        "PROTOCOL - THE REPORTING LOOP:\n"
-                        "1. DIRECT: Issue high-level commands to the Analyst (e.g., 'Run analysis on the 3.5 TeV region').\n"
-                        "2. READ: When the Analyst tells you a report has been generated (e.g., 'llm_enhanced_report.txt'), "
-                        "you MUST use your file reading tool (e.g., 'read_any_cwd_file' or 'read_article_file') to inspect the contents of that file immediately.\n"
-                        "3. ANALYZE: Read the report created by the Analyst.\n"
-                        "4. DECIDE: \n"
-                        "   - If Significance > 3.0: Recommend publication.\n"
-                        "   - If Significance < 3.0: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
-                        "   - If Significance is high near band edges: Suggest refining the mass range.\n"
-                        "5. DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
-                    )
-                }
-            ],
-            "AnalyticsAgent": [
-                {
-                    "role": "system", 
-                    "content": (
-                        "You are an Expert Research Technician (The Analyst). "
-                        "You operate the LaCATHODE anomaly detection pipeline. "
-                        "You have access to tools: FastJet, Preparation, Trainer, Oracle, and Report Generator.\n\n"
-                        "EXECUTION RULES:\n"
-                        "1. SMART CACHING: Check if input/output files exist before running tools.\n"
-                        "2. FULL PIPELINE: FastJet -> Preparation -> Training -> Oracle -> Report Generator.\n"
-                        "3. PARTIAL RE-RUNS: You can re-run any step if parameters change or if directed by the Orchestrator.\n"
-                    )
-                }
-            ],
-        }
+PENDING_DIR = os.path.join("jobs", "pending")
+COMPLETED_DIR = os.path.join("jobs", "completed")
+LOG_DIR = os.path.join("jobs", "logs")
+os.makedirs(COMPLETED_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(PENDING_DIR, exist_ok=True)
 
-        # Resume logic
-        resume_job_id = kwargs.get('resume_job_id', None)
-        resume_job_data = self.get_resume_job_data(resume_job_id)
+# Toggle this to True/False as needed, or control via env var
+DEBUG_CACHE_MODE = True
 
-        # Initialize Agents with Model NAME, not object
-        self.orchestrator_agent = OrchestratorAgent(
-            model_name=self.base_model_name, # Changed arg name
-            # tokenizer=self.tokenizer,      # Removed
-            initial_messages=self.get_initial_messages(
-                agent="OrchestratorAgent",
-                resume_job_data=resume_job_data
-            ),
-            rag_engine=self.rag_engine,
-        )
+# Track current bot process for wake-up management
+CURRENT_BOT_PROCESS = None
 
-        self.analytics_agent = AnalyticsAgent(
-            model_name=self.base_model_name, # Changed arg name
-            # tokenizer=self.tokenizer,      # Removed
-            initial_messages=self.get_initial_messages(
-                agent="AnalyticsAgent",
-                resume_job_data=resume_job_data
-            ),
-            rag_engine=self.rag_engine,
-        )
-
-        # Register peers
-        self.orchestrator_agent.register_peer('AnalyticsAgent', self.analytics_agent)
-        self.analytics_agent.register_peer('OrchestratorAgent', self.orchestrator_agent)
-
-        # Resume processing
-        self.offline_resume_temp_data = None
-        
-        # Start resume thread
-        resume_thread = threading.Thread(target=self.process_offline_resume)
-        resume_thread.daemon = True 
-        resume_thread.start()
+def shutdown_bot():
+    """
+    Checks if a bot instance is currently running and shuts it down.
+    """
+    global CURRENT_BOT_PROCESS
     
-    def get_resume_job_data(self, resume_job_id: str):
-        if resume_job_id:
-            print(f"Resuming session from Job ID: {resume_job_id}")
-            result_path = f"jobs/completed/{resume_job_id}.json"
-            if os.path.exists(result_path):
-                with open(result_path, "r") as f:
-                    return json.load(f)
-            else:
-                print("Job result file not found!")
+    if CURRENT_BOT_PROCESS is not None:
+        # Check if process is still alive (poll returns None if alive)
+        if CURRENT_BOT_PROCESS.poll() is None:
+            logger.info(f"Worker: Shutting down active bot instance (PID: {CURRENT_BOT_PROCESS.pid})...")
+            try:
+                # Try graceful termination first
+                CURRENT_BOT_PROCESS.terminate()
+                CURRENT_BOT_PROCESS.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.info("Worker: Process unresponsive, forcing kill...")
+                CURRENT_BOT_PROCESS.kill()
+                CURRENT_BOT_PROCESS.wait()
+        
+        # Clear the reference
+        CURRENT_BOT_PROCESS = None
+
+def execute_tool(name, args):
+    logger.info(f"Worker: Received task '{name}' with args: {args}")
+    
+    if name not in TOOL_REGISTRY:
+        raise ValueError(f"Error: Tool '{name}' is not registered in the worker.")
+    
+    # Get the function
+    tool_func = TOOL_REGISTRY[name]
+
+    # Kill any active bot before running tool
+    #shutdown_bot()
+    
+    # Execute with unpacked arguments
+    logger.info(f"Worker: Executing tool function '{name}'...")
+    logger.info(f"Worker: Tool function args: {args}")
+    result = tool_func(**args)
+    return result
+
+def start_up_bot(job_id: str | None):
+    """
+    Restarts the main application with the context of the completed job.
+    """
+    logger.info(f"Waking up bot for job {job_id}...")
+    global CURRENT_BOT_PROCESS
+
+    # Kill any existing bot process first
+    #shutdown_bot()
+    
+    # Inherit Environment Variables
+    # Critical for CUDA_VISIBLE_DEVICES, API Keys, Python path, etc.
+    env = os.environ.copy()
+    
+    # Launch the process
+    # We use Popen so this script continues (or can exit), 
+    # letting the bot run independently.
+    launch_command = [sys.executable, "-m", "framework", "--framework"]
+    if job_id:
+        launch_command += ["--resume", job_id]
+
+    CURRENT_BOT_PROCESS = subprocess.Popen(
+        launch_command,
+        env=env,
+        cwd=os.getcwd() # Ensure we launch from the correct root
+    )
+
+def find_cached_result(tool_name, tool_args):
+    """
+    Scans completed jobs to find an exact match for tool_name and tool_args.
+    Returns the previous result if found, otherwise None.
+    """
+    if not os.path.exists(COMPLETED_DIR):
         return None
 
-    def get_initial_messages(self, agent, resume_job_data=None):
-        if (
-            resume_job_data and 
-            resume_job_data.get("original_state") and 
-            resume_job_data["original_state"].get("agent_identifier") == agent
-        ):
-            print(f"Restoring messages for {agent} from resume data.")
-            initial_messages = resume_job_data["original_state"]["messages"]
-            
-            # Simple resume logic: inject tool result
-            tool_call_id = uuid.uuid4().hex
-
-            # Get the last tool call made by this agent
-            last_tool_call_name = resume_job_data["original_state"].get("tool_name", None)
-            
-            # Note: We need to append the result to conversation
-            # The last message in 'messages' should be the assistant's tool call
-            # We append the result as a 'tool' role message
-            
-            tool_result_msg = {
-                "role": "tool",
-                "content": resume_job_data["tool_result"],
-                "id": tool_call_id,
-                "tool_name": last_tool_call_name,
-            }
-            initial_messages.append(tool_result_msg)
-            return initial_messages
-        else:
-            return self.default_initial_messages.get(agent, [])
+    logger.info(f"Debug Cache: Scanning for previous runs of {tool_name}...")
     
-    def process_offline_resume(self):
-        time.sleep(2)
-        if self.analytics_agent.messages and self.analytics_agent.messages[-1]['role'] == 'tool':
-            print(">>> Auto-Resume detected: Processing Tool Result offline...")
-            # Run the agent loop with empty input
-            generator = self.analytics_agent.respond("", message_id=uuid.uuid4().hex)
-            try:
-                for parsed in generator:
-                    self.offline_resume_temp_data = parsed
-                print(">>> Offline processing complete.")
-            except SystemExit:
-                pass 
-            finally:
-                self.offline_resume_temp_data = None
-
-    # Removed load_model / unload_model functions
-
-    def check_background_updates(self):
-        """Polled by Gradio Timer."""
-        full_history = self.get_latest_history()
-        
-        if self.offline_resume_temp_data:
-            # Manually construct bubble from temp data
-            parsed = self.offline_resume_temp_data
-            if isinstance(parsed, list): parsed = parsed[-1] # handle list wrap
+    # Iterate over all completed job files
+    for fname in os.listdir(COMPLETED_DIR):
+        if not fname.endswith(".json"):
+            continue
             
-            if parsed.get("thinking"):
-                full_history.append(gr.ChatMessage(role="assistant", content=parsed["thinking"], metadata={"title": "Auto-Thinking"}))
-
-            if parsed.get("tool_calls"):
-                for tool_call in parsed["tool_calls"]:
-                    full_history.append(
-                        gr.ChatMessage(
-                            role="assistant", 
-                            content=f"Invoking {tool_call['name']}...", 
-                            metadata={"title": "Auto-Tool Call"})
-                        )
-            if parsed.get("content"):
-                full_history.append(gr.ChatMessage(role="assistant", content=parsed["content"]))
+        fpath = os.path.join(COMPLETED_DIR, fname)
+        try:
+            with open(fpath, "r") as f:
+                cached_data = json.load(f)
                 
-            return full_history, gr.update(interactive=False, placeholder="Agent is auto-resuming...")
-        
-        return full_history, gr.update(interactive=True, placeholder="Type here...")
+            # Check if valid structure
+            if "original_state" not in cached_data:
+                continue
 
-    def chat_function(self, user_input, chat_history):
-        message_id = uuid.uuid4().hex
-        parsed_generator = self.analytics_agent.respond(user_input, message_id)
-
-        for multiple_parsed in parsed_generator:
-            full_history = self.analytics_agent.messages_to_gradio_history()
+            cached_state = cached_data["original_state"]
             
-            # Transient bubbles
-            current_bubbles = []
-            for parsed in multiple_parsed:
-                role = parsed.get("role", "assistant")
-                if parsed["thinking"]:
-                    current_bubbles.append(gr.ChatMessage(role=role, content=parsed["thinking"], metadata={"title": "Thinking"}))
-
-                if parsed["tool_calls"]:
-                    for tool_call in parsed["tool_calls"]:
-                        current_bubbles.append(
-                            gr.ChatMessage(
-                                role=role, 
-                                content=f"Invoking {tool_call['name']}...", 
-                                metadata={"title": "Tool Call"})
-                            )
-                        
-                if parsed["content"]:
-                    current_bubbles.append(gr.ChatMessage(role=role, content=parsed["content"]))
+            # Check for exact match (Name + Args)
+            # comparing dicts directly works in Python (order doesn't matter)
+            # check status to ensure it was a successful run
+            if (cached_state.get("tool_name") == tool_name and 
+                cached_state.get("tool_args") == tool_args and
+                cached_data.get("status") == "success"):
+                
+                logger.info(f"Debug Cache: HIT found in {fname}! Skipping execution.")
+                return cached_data.get("tool_result")
+                
+        except (json.JSONDecodeError, OSError):
+            continue
             
-            if current_bubbles:
-                yield full_history + current_bubbles
+    return None
 
-    def get_latest_history(self):
-        return self.analytics_agent.messages_to_gradio_history()
-    
-    def run_interactive(self):
-        initial_gradio_history = self.get_latest_history()
-        with gr.Blocks(fill_height=True) as demo:
-            chatbot = gr.Chatbot(value=initial_gradio_history, type="messages", scale=1)
-            msg = gr.Textbox(label="Your Input", placeholder="Type here...", autofocus=True)
+def run_worker():
+    logger.info("Worker started. Monitoring jobs/pending/ ...")
+    while True:
+        try:
+            jobs = [f for f in os.listdir(PENDING_DIR) if f.endswith(".json")]
             
-            # Timer for background updates (Resume logic)
-            timer = gr.Timer(value=0.5, active=True)
-            timer.tick(fn=self.check_background_updates, inputs=None, outputs=[chatbot, msg])
+            for job_file in jobs:
+                job_path = os.path.join(PENDING_DIR, job_file)
+                
+                # Check if file is fully written (simple lock check)
+                try:
+                    with open(job_path, "r") as f:
+                        data = json.load(f)
+                except json.JSONDecodeError:
+                    continue # File might be writing still
+                
+                current_job_id = data['job_id']
+                tool_name = data["tool_name"]
+                tool_args = data["tool_args"]
+                
+                logger.info(f"Processing Job: {current_job_id}")
 
-            def submit_wrapper(user_input):
-                last_history = [] 
-                gen = self.chat_function(user_input, [])
-                for history in gen:
-                    last_history = history
-                    yield gr.update(value="", interactive=False), history
-                yield gr.update(interactive=True), last_history
+                result = None
+                
+                # --- DEBUG CACHE MODE START ---
+                if DEBUG_CACHE_MODE:
+                    cached_result = find_cached_result(tool_name, tool_args)
+                    if cached_result is not None:
+                        result = cached_result
+                        logger.info("Worker: Used cached result.")
+                # --- DEBUG CACHE MODE END ---
 
-            msg.submit(fn=submit_wrapper, inputs=[msg], outputs=[msg, chatbot])
+                # If no cache hit (or mode disabled), run for real
+                status = "success"
+                if result is None:
+                    try:
+                        result = execute_tool(tool_name, tool_args)
+                    except subprocess.CalledProcessError as e:
+                        # Capture detailed subprocess error for the LLM
+                        status = "error"
+                        result = f"Tool Execution Failed (Exit Code: {e.returncode}).\n\nSTDERR:\n{e.stderr}"
+                        if e.stdout:
+                            result += f"\n\nSTDOUT:\n{e.stdout}"
+                            
+                    except Exception as e:
+                        # Capture generic python errors (like ValueError from validation)
+                        status = "error"
+                        result = f"Tool Execution Error: {str(e)}"
 
-        demo.launch(share=False)
+                if result:
+                    # Save stdout to log file for reference
+                    log_path = os.path.join(LOG_DIR, f"{current_job_id}_run_log.txt")
+                    with open(log_path, "w") as log_file:
+                        log_file.write(result)
+                
+                # If success, ensure result is wrapped in <tool_result> tags
+                if status == "success" and result and isinstance(result, str):
+                    start_tag = "<tool_result>"
+                    end_tag = "</tool_result>"
+                    
+                    if start_tag in result and end_tag in result:
+                        # Extract content between tags
+                        start_idx = result.find(start_tag) + len(start_tag)
+                        end_idx = result.find(end_tag)
+                        result = result[start_idx:end_idx].strip()
+                    else:
+                        result = result.strip()
+                
+                # Create Result Packet
+                result_data = {
+                    "original_state": data,
+                    "tool_result": result,
+                    "status": status,
+                }
+                
+                # Save to Completed
+                result_path = os.path.join(COMPLETED_DIR, job_file)
+                with open(result_path, "w") as f:
+                    json.dump(result_data, f, indent=2)
+                
+                # Cleanup Pending
+                os.remove(job_path)
+                
+                # Conditional Wake-Up
+                # Check if there are MORE jobs currently in the folder.
+                # We re-list the directory to catch anything that arrived during execution.
+                remaining_jobs = [f for f in os.listdir(PENDING_DIR) if f.endswith(".json")]
+                
+                if remaining_jobs:
+                    logger.info(f"Queue not empty ({len(remaining_jobs)} remaining). ")
+                
+            time.sleep(2)
+        except KeyboardInterrupt:
+            logger.info("Worker stopping...")
+            break
+        except Exception as e:
+            logger.warning(f"Worker Loop Error: {e}")
+            time.sleep(2)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--resume", type=str, help="Job ID to resume from")
+    parser.add_argument("--resume", type=str, help="Job ID to resume from", default=None)
+    parser.add_argument("--framework", action="store_true", help="Starts ONLY the main bot. Regular run also starts the bot.", default=False)
+    parser.add_argument("--worker-only", action="store_true", dest="worker_only", help="Starts only the worker", default=False)
     parser.add_argument("--model", type=str, default="qwen3:14b", help="Ollama model name")
     args = parser.parse_args()
 
-    framework = Framework(base_model_name=args.model, resume_job_id=args.resume)
-    framework.run_interactive()
+    if args.framework:
+        # Start the main framework bot after setting up the worker
+        from framework import Framework
+
+        framework = Framework(base_model_name=args.model, resume_job_id=args.resume)
+        framework.run_interactive()
+    else:
+        # Start the bot and the worker
+        # This will run this script again with --framework when needed
+        worker_only = args.worker_only
+        if not worker_only:
+            start_up_bot(args.resume)
+
+        run_worker()
