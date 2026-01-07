@@ -2,16 +2,6 @@ import sys
 import subprocess
 import os
 
-def _extract_tool_content(result: str) -> str:
-    """Helper to parse <tool_result> tags if present."""
-    result_token = "<tool_result>"
-    result_end_token = "</tool_result>"
-    if result_token in result and result_end_token in result:
-        start_idx = result.index(result_token) + len(result_token)
-        end_idx = result.index(result_end_token)
-        return result[start_idx:end_idx].strip()
-    return result
-
 def fastjet_tool(
     input_file: str,
     numpy_read_chunk_size: int | None = None,
@@ -39,7 +29,7 @@ def fastjet_tool(
         A string summarizing the preprocessing results.
     """
     if input_file is None:
-        return "Error: input_file parameter is required for FastJet tool."
+        raise ValueError("Error: input_file parameter is required for FastJet tool.")
     
     command = [
         f"{sys.executable}",
@@ -58,25 +48,19 @@ def fastjet_tool(
     if no_label_input:
         command += ["--no_label_input"]
 
-    try:
-        print(f"Worker: Executing command: {' '.join(command)}")
-        # Run the subprocess
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            env=os.environ
-        )
+    print(f"Worker: Executing command: {' '.join(command)}")
+    # Run the subprocess
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    # Process the output
+    return result.stdout
         
-        # Process the output
-        result_content = _extract_tool_content(result.stdout)
-        return f"Data preprocessing completed successfully. Output:\n{result_content}"
-        
-    except subprocess.CalledProcessError as e:
-        return f"Data preprocessing failed.\nError Code: {e.returncode}\nStderr: {e.stderr}"
-    except Exception as e:
-        return f"Unexpected execution error: {str(e)}"
     
 def lacathode_preparation_tool(
     run_id: str,
@@ -119,12 +103,12 @@ def lacathode_preparation_tool(
     # Validation logic for required inputs based on mode
     if run_mode == 'training':
         if not input_background or not input_signal:
-            return "Error: Training mode requires both input_background and input_signal arguments."
+            raise ValueError("Error: Training mode requires both input_background and input_signal arguments.")
     elif run_mode == 'inference':
         if not input_unlabeled:
-            return "Error: Inference mode requires input_unlabeled argument."
+            raise ValueError("Error: Inference mode requires input_unlabeled argument.")
     else:
-        return f"Error: Invalid run_mode '{run_mode}'. Must be 'training' or 'inference'."
+        raise ValueError(f"Error: Invalid run_mode '{run_mode}'. Must be 'training' or 'inference'.")
 
     command = [
         f"{sys.executable}",
@@ -158,28 +142,20 @@ def lacathode_preparation_tool(
     if side_band_max is not None:
         command += ["--side_band_max", str(side_band_max)]
 
-    try:
-        print(f"Worker: Executing command: {' '.join(command)}")
-        # Run the subprocess
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            env=os.environ
-        )
-        
-        # Process the output
-        result_content = _extract_tool_content(result.stdout)
-        # Fallback if no tool_result tag, return full stdout
-        if result_content == result.stdout:
-            return f"LaCATHODE preparation completed.\n{result.stdout}"
-        return f"LaCATHODE preparation completed successfully. Output:\n{result_content}"
-        
-    except subprocess.CalledProcessError as e:
-        return f"LaCATHODE preparation failed.\nError Code: {e.returncode}\nStderr: {e.stderr}"
-    except Exception as e:
-        return f"Unexpected execution error: {str(e)}"
+
+    print(f"Worker: Executing command: {' '.join(command)}")
+    # Run the subprocess
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    # Fallback if no tool_result tag, return full stdout
+    return result.stdout
+    
 
 def lacathode_training_tool(
     run_id: str,
@@ -240,41 +216,29 @@ def lacathode_training_tool(
     if plot:
         command += ["--plot"]
 
-    try:
-        print(f"Worker: Executing command: {' '.join(command)}")
-        # Run the subprocess
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            env=os.environ
-        )
-        
-        # Process the output
-        result_content = _extract_tool_content(result.stdout)
-        
-        # Fallback if no tool_result tag, return full stdout
-        if result_content == result.stdout:
-             return f"LaCATHODE training completed.\n{result.stdout}"
-             
-        return f"LaCATHODE training completed successfully. Output:\n{result_content}"
-        
-    except subprocess.CalledProcessError as e:
-        return f"LaCATHODE training failed.\nError Code: {e.returncode}\nStderr: {e.stderr}"
-    except Exception as e:
-        return f"Unexpected execution error: {str(e)}"
+    print(f"Worker: Executing command: {' '.join(command)}")
+    # Run the subprocess
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    # Fallback if no tool_result tag, return full stdout
+    return result.stdout
+    
     
 def lacathode_oracle_tool(
     inference_file: str,
-    data_dir: str,
-    model_dir: str,
     run_id: str,
+    data_dir: str | None = None,
+    model_dir: str | None = None,
 ):
     """
     Tool to run the LaCATHODE Oracle Inference.
-    Uses the lacathode_oracle.py script.
-    
+
     This tool applies a trained LaCATHODE model to new data to generate anomaly scores.
     It requires access to the original training data directory to calibrate its scalers.
 
@@ -282,23 +246,23 @@ def lacathode_oracle_tool(
     inference_file is result of LaCATHODE preparation tool.
     
     Args:
-        inference_file: Data file to predict on, this is result of preparation step. 
-                        Let's say output of preparation step is in 'toolout/lacathode_prepared_data/{run_id}/' directory,
-                        - e.g. 'toolout/lacathode_prepared_data/{run_id}/innerdata_combined.npy'.
-                        This is a REQUIRED argument.
-        data_dir: Directory containing the ORIGINAL training data (needed for calibration). 
-                  Default is "./toolout/lacathode_prepared_data/{run_id}/".
-        model_dir: Directory containing trained models. Also where output scores will be saved.
-                   Default is "./toolout/lacathode_trained_models/{run_id}/".
-        run_id: Unique identifier for the run. Determines the output directory. 
-                You can use training run ID from the training step. (required)
-    
-    Returns:
-        A string summarizing the inference results, including the path to the saved scores.
+        inference_file: Path to the data file to predict on. 
+                        e.g. 'toolout/lacathode_prepared_data/{run_id}/innerdata_combined.npy'
+        run_id: The ID of the run (e.g., 'run_001'). Used to locate models and save outputs.
+        data_dir: (Optional) Override path to original training data. 
+                  Defaults to 'toolout/lacathode_prepared_data/{run_id}/'.
+        model_dir: (Optional) Override path to trained models.
+                   Defaults to 'toolout/lacathode_trained_models/{run_id}/'.
     """
     
     if not inference_file:
-        return "Error: inference_file is a required argument for the Oracle tool."
+        raise ValueError("Error: inference_file is a required argument.")
+
+    # 1. Infer Paths from run_id if not provided
+    if data_dir is None:
+        data_dir = f"toolout/lacathode_prepared_data/{run_id}/"
+    if model_dir is None:
+        model_dir = f"toolout/lacathode_trained_models/{run_id}/"
 
     command = [
         f"{sys.executable}",
@@ -306,39 +270,28 @@ def lacathode_oracle_tool(
         "--inference_file", inference_file
     ]
 
-    output_file = f"toolout/lacathode_trained_models/{run_id}/inference_scores.npy"
+    # 2. Define Explicit Output Path
+    # We save directly to the model directory, but as a full path
+    output_file = f"{model_dir}/inference_scores.npy"
 
     if data_dir:
         command += ["--data_dir", data_dir]
     if model_dir:
         command += ["--model_dir", model_dir]
-    if output_file:
-        command += ["--output_file", output_file]
+    
+    # Pass the FULL PATH now that the script accepts it directly
+    command += ["--output_file", output_file]
 
-    try:
-        print(f"Worker: Executing command: {' '.join(command)}")
-        # Run the subprocess
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            env=os.environ
-        )
-        
-        # Process the output
-        result_content = _extract_tool_content(result.stdout)
-        
-        # Fallback if no tool_result tag, return full stdout
-        if result_content == result.stdout:
-             return f"LaCATHODE Oracle inference completed.\n{result.stdout}"
-             
-        return f"LaCATHODE Oracle inference completed successfully. Output:\n{result_content}"
-        
-    except subprocess.CalledProcessError as e:
-        return f"LaCATHODE Oracle inference failed.\nError Code: {e.returncode}\nStderr: {e.stderr}\nStdout: {e.stdout}"
-    except Exception as e:
-        return f"Unexpected execution error: {str(e)}"
+    print(f"Worker: Executing command: {' '.join(command)}")
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    return result.stdout
 
 def lacathode_report_generator_tool(
     data_file: str | None = None,
@@ -351,16 +304,14 @@ def lacathode_report_generator_tool(
     Tool to generate a human-readable anomaly report using lacathode_report_generator.py.
 
     Data file is result of LaCATHODE preparation tool.
-    Scores file is result of LaCATHODE Oracle or Trainer tool.
+    Scores file is result of LaCATHODE Oracle tool.
     
-    This tool analyzes the anomaly scores generated by the Oracle/Trainer, identifies 
+    This tool analyzes the anomaly scores generated by the Oracle, identifies 
     excess regions (hotspots) in the mass spectrum, and lists the top candidate events.
     
     Args:
         data_file: Path to the input data file (numpy .npy format). 
-                   Usually 'toolout/lacathode_prepared_data/{run_id}/innerdata_combined.npy' (Required).
         scores_file: Path to the anomaly scores file (numpy .npy format).
-                     Usually 'toolout/lacathode_trained_models/{run_id}/inference_scores.npy' (from Oracle) (Required).
         output_file: Path to save the generated report (default "llm_enhanced_report.txt").
         top_percentile: Percentile threshold to define anomaly candidates. Default 99.0 But you can experiment.
         bin_count: Number of bins for mass histogram. Default 18 But you can experiment.
@@ -370,7 +321,7 @@ def lacathode_report_generator_tool(
     """
     
     if not data_file or not scores_file:
-        return "Error: Both data_file and scores_file are required arguments."
+        raise ValueError("Error: Both data_file and scores_file are required arguments.")
 
     command = [
         f"{sys.executable}",
@@ -386,27 +337,16 @@ def lacathode_report_generator_tool(
     if bin_count is not None:
         command += ["--bin_count", str(bin_count)]
 
-    try:
-        print(f"Worker: Executing command: {' '.join(command)}")
-        # Run the subprocess
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            env=os.environ
-        )
-        
-        # Process the output using the standard helper since tags are fixed
-        result_content = _extract_tool_content(result.stdout)
-        
-        # Fallback if no tags found (though they should be there now)
-        if result_content == result.stdout:
-             return f"Report generated. Output:\n{result.stdout}"
-             
-        return f"Report generated successfully:\n\n{result_content}"
-        
-    except subprocess.CalledProcessError as e:
-        return f"Report generation failed.\nError Code: {e.returncode}\nStderr: {e.stderr}"
-    except Exception as e:
-        return f"Unexpected execution error: {str(e)}"
+
+    print(f"Worker: Executing command: {' '.join(command)}")
+    # Run the subprocess
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    return result.stdout
+    

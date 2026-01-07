@@ -37,4 +37,17 @@ class AnalyticsAgent(LocalAgent):
             except FileNotFoundError:
                 return f"Directory '{folder_path}' not found."
     
-        return [list_any_cwd_folder]
+        def report_to_orchestrator(self, reports: str):
+            """
+                Reports back to the Orchestrator Agent.
+                Orchestrator is the parent agent that can give high-level instructions.
+                
+                Args:
+                    reports: The report string to send back to the Orchestrator.
+                Returns:
+            """
+            self.talk_to_peer(agent_name="orchestrator_agent", message=reports)
+
+            return "Report sent to Orchestrator Agent. No further response needed."
+
+        return [list_any_cwd_folder, report_to_orchestrator]

@@ -105,7 +105,7 @@ class LaCATHODEOracle:
         self.classifier.load_best_model()
         print("Oracle Ready.\n")
 
-    def predict(self, inference_file_path, save_name):
+    def predict(self, inference_file_path, scores_file_path):
         print(f"--- Running Inference on {inference_file_path} ---")
         
         try:
@@ -168,14 +168,18 @@ class LaCATHODEOracle:
         # --- SAFETY FIX ENDS HERE ---
 
         # Save
-        output_path = os.path.join(self.model_dir, save_name)
+        output_path = os.path.join(scores_file_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
         np.save(output_path, final_scores)
+        
         self.add_tool_out(f"Successfully done. Scores saved to: {output_path}")
         self.add_tool_out(f"Mean Score: {np.nanmean(final_scores):.4f} (Higher > 0.5 = More Anomalous)")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LaCATHODE Oracle Inference")
+    # ... [Keep existing arguments] ...
     parser.add_argument("--data_dir", type=str, default="./toolout/lacathode_input_data/",
                         help="Directory containing ORIGINAL training data (needed for calibration)")
     parser.add_argument("--model_dir", type=str, default="./toolout/lacathode_trained_models/",
@@ -187,12 +191,25 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
 
+    oracle = None
     try:
         oracle = LaCATHODEOracle(args.data_dir, args.model_dir)
         oracle.predict(args.inference_file, args.output_file)
     except Exception as e:
-        print(f"Error during Oracle inference: {e}")
+        # CRITICAL FIX: Add the error to the tool output list 
+        # so it gets wrapped in <tool_result> tags.
+        error_message = f"CRITICAL ERROR during Oracle inference: {str(e)}"
+        if oracle:
+            oracle.add_tool_out(error_message)
+        else:
+            # If init failed, oracle is None, so we print manually
+            print(error_message)
+            print(f"<tool_result>\n{error_message}\n</tool_result>")
+            sys.exit(1) # Signal failure to worker
+            
     finally:
-        print("<tool_result>")
-        print('\n'.join(oracle.tool_out))
-        print("</tool_result>")
+        # Safety check: Only print tags if oracle exists
+        if oracle:
+            print("<tool_result>")
+            print('\n'.join(oracle.tool_out))
+            print("</tool_result>")

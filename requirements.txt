@@ -150,6 +150,7 @@ httpx==0.28.1
     #   datasets
     #   gradio
     #   gradio-client
+    #   ollama
     #   safehttpx
 huggingface-hub==0.36.0
     # via
@@ -266,6 +267,8 @@ oauthlib==3.3.1
     # via
     #   kubernetes
     #   requests-oauthlib
+ollama==0.6.1
+    # via -r requirements.in
 onnxruntime==1.23.2
     # via chromadb
 opentelemetry-api==1.38.0
@@ -368,6 +371,7 @@ pydantic==2.12.3
     #   chromadb
     #   fastapi
     #   gradio
+    #   ollama
 pydantic-core==2.41.4
     # via pydantic
 pydub==0.25.1

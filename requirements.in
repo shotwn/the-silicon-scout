@@ -12,6 +12,7 @@ datasets
 protobuf
 sentencepiece
 scikit-learn
+ollama
 
 # For documentation generation
 mkdocs

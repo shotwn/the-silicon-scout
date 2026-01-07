@@ -165,7 +165,4 @@ class OrchestratorAgent(LocalAgent):
         if self.rag_engine:
             tools = tools + [query_knowledge_base]
         
-        # Tools that need Model to unload during their execution
-        self.heavy_tools = ['run_import_and_fastjet', 'lacathode_preperation']
-        
         return tools

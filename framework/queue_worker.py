@@ -169,9 +169,17 @@ def run_worker():
                 if result is None:
                     try:
                         result = execute_tool(tool_name, tool_args)
-                    except Exception as e:
-                        result = f"Error during tool execution: {e}"
+                    except subprocess.CalledProcessError as e:
+                        # Capture detailed subprocess error for the LLM
                         status = "error"
+                        result = f"Tool Execution Failed (Exit Code: {e.returncode}).\n\nSTDERR:\n{e.stderr}"
+                        if e.stdout:
+                            result += f"\n\nSTDOUT:\n{e.stdout}"
+                            
+                    except Exception as e:
+                        # Capture generic python errors (like ValueError from validation)
+                        status = "error"
+                        result = f"Tool Execution Error: {str(e)}"
 
                 if result:
                     # Save stdout to log file for reference
@@ -179,17 +187,20 @@ def run_worker():
                     with open(log_path, "w") as log_file:
                         log_file.write(result)
                 
-                # If <tool_result> exists in stdout, capture only that part
-                if result and isinstance(result, str):
+                # If success, ensure result is wrapped in <tool_result> tags
+                if status == "success" and result and isinstance(result, str):
                     start_tag = "<tool_result>"
                     end_tag = "</tool_result>"
-                    start_idx = result.find(start_tag)
-                    end_idx = result.find(end_tag)
-                    if start_idx != -1 and end_idx != -1:
-                        inside = result[start_idx + len(start_tag):end_idx].strip()
-                        # Keep the tags because API expects them
+                    
+                    if start_tag in result and end_tag in result:
+                        # Extract content between tags
+                        start_idx = result.find(start_tag) + len(start_tag)
+                        end_idx = result.find(end_tag)
+                        inside = result[start_idx:end_idx].strip()
                         result = f"<tool_result>\n{inside}\n</tool_result>"
-
+                    else:
+                        # Wrap raw output if tags are missing
+                        result = f"<tool_result>\n{result.strip()}\n</tool_result>"
                 
                 # Create Result Packet
                 result_data = {
