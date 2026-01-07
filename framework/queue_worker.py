@@ -20,9 +20,35 @@ COMPLETED_DIR = os.path.join("jobs", "completed")
 LOG_DIR = os.path.join("jobs", "logs")
 os.makedirs(COMPLETED_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(PENDING_DIR, exist_ok=True)
 
 # Toggle this to True/False as needed, or control via env var
 DEBUG_CACHE_MODE = True
+
+# Track current bot process for wake-up management
+CURRENT_BOT_PROCESS = None
+
+def shutdown_bot():
+    """
+    Checks if a bot instance is currently running and shuts it down.
+    """
+    global CURRENT_BOT_PROCESS
+    
+    if CURRENT_BOT_PROCESS is not None:
+        # Check if process is still alive (poll returns None if alive)
+        if CURRENT_BOT_PROCESS.poll() is None:
+            print(f"Worker: Shutting down active bot instance (PID: {CURRENT_BOT_PROCESS.pid})...")
+            try:
+                # Try graceful termination first
+                CURRENT_BOT_PROCESS.terminate()
+                CURRENT_BOT_PROCESS.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print("Worker: Process unresponsive, forcing kill...")
+                CURRENT_BOT_PROCESS.kill()
+                CURRENT_BOT_PROCESS.wait()
+        
+        # Clear the reference
+        CURRENT_BOT_PROCESS = None
 
 def execute_tool(name, args):
     print(f"Worker: Received task '{name}' with args: {args}")
@@ -32,6 +58,9 @@ def execute_tool(name, args):
     
     # Get the function
     tool_func = TOOL_REGISTRY[name]
+
+    # Kill any active bot before running tool
+    shutdown_bot()
     
     # Execute with unpacked arguments
     print(f"Worker: Executing tool function '{name}'...")
@@ -44,15 +73,19 @@ def wake_up_bot(job_id):
     Restarts the main application with the context of the completed job.
     """
     print(f"Waking up bot for job {job_id}...")
+    global CURRENT_BOT_PROCESS
+
+    # Kill any existing bot process first
+    shutdown_bot()
     
-    # 1. Inherit Environment Variables
+    # Inherit Environment Variables
     # Critical for CUDA_VISIBLE_DEVICES, API Keys, Python path, etc.
     env = os.environ.copy()
     
-    # 2. Launch the process
+    # Launch the process
     # We use Popen so this script continues (or can exit), 
     # letting the bot run independently.
-    subprocess.Popen(
+    CURRENT_BOT_PROCESS = subprocess.Popen(
         [sys.executable, "-m", "framework", "--resume", job_id],
         env=env,
         cwd=os.getcwd() # Ensure we launch from the correct root

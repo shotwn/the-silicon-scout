@@ -223,7 +223,7 @@ def lacathode_training_tool(
         "framework/tools/lacathode_trainer.py",
     ]
 
-    model_dir = f"/toolout/lacathode_trained_models/{run_id}/"
+    model_dir = f"toolout/lacathode_trained_models/{run_id}/"
 
     if data_dir:
         command += ["--data_dir", data_dir]

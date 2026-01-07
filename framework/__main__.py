@@ -25,6 +25,7 @@ class Framework:
             self.device = torch.device("cuda")
             self.dtype = torch.float16
         elif torch.backends.mps.is_available():
+            allow_bnb = True
             self.device = torch.device("mps")
             self.dtype = torch.float16
         else:
@@ -59,31 +60,39 @@ class Framework:
         self.default_initial_messages = {
             "OrchestratorAgent": [
                 {
-                    "role": "system", "content": "You are an orchestrator agent part of a Particle Physics Anomaly Detection System. "
-                    "Your task is to orchestrate different specialized agents to analyze data and provide insights."
-                    "You use tool calls to interact with specialized agents as needed."
-                    "To start, ask data file name from the user and wait for the response."
-                    "After response, check if the file exists using the appropriate tool. Ask user if they want to proceed with data preprocessing using FastJet."
+                    "role": "system", 
+                    "content": (
+                        "You are a Senior Particle Physicist (The Scientist). "
+                        "You direct an Analyst Agent to find anomalies in collider data. "
+                        "Your Goal: Discover new physics anomalies with >3 sigma significance.\n\n"
+                        "PROTOCOL - THE REPORTING LOOP:\n"
+                        "1. DIRECT: Issue high-level commands to the Analyst (e.g., 'Run analysis on the 3.5 TeV region').\n"
+                        "2. READ: When the Analyst tells you a report has been generated (e.g., 'llm_enhanced_report.txt'), "
+                        "you MUST use your file reading tool (e.g., 'read_any_cwd_file' or 'read_article_file') to inspect the contents of that file immediately.\n"
+                        "3. ANALYZE: Look for 'Max Excess' and 'Significance' in the file content you just read.\n"
+                        "4. DECIDE: \n"
+                        "   - If Significance > 3.0: Recommend publication.\n"
+                        "   - If Significance < 3.0: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
+                        "   - If Significance is high near band edges: Suggest refining the mass range.\n"
+                        "5. DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
+                    )
                 }
             ],
             "AnalyticsAgent": [
                 {
-                    "role": "system", "content": "You are an analytics agent specialized in processing particle physics data files. "
-                    "You have access to tools like LaCATHODE Trainer and Report Generator to analyze data files and generate reports. "
-                    "Make sure to use tool calls in correct order to achieve the best results. "
-                    "You can run training and report part multiple times with different parameters and merge or compare the results into a final report. "
-                    "But make sure to not overwrite previous runs unless specified. "
-                    "\nA usual run would be: "
-                    "1. fastjet_tool "
-                    "2. lacathode_preperation_tool "
-                    "3. lacathode_trainer_tool "
-                    "4. lacathode_oracle_tool "
-                    "5. lacathode_report_generator_tool "
-                    "\nIMPORTANT: Use list_any_cwd_folder tool to check for files and directories in current working directory when needed. "
-                    "\nIMPORTANT: When you are not sure about something, ask the user for clarification before diving in long thinking or tool calls."
-                    "\nIMPORTANT: Focus ONLY on the immediate next step. Do not try to plan or validate arguments for future tools (like step 2 or 3) "
-                    "until the current tool execution is complete and you have the results. "
-                    "Execute the first necessary tool immediately."
+                    "role": "system", 
+                    "content": (
+                        "You are an Expert Research Technician (The Analyst). "
+                        "You operate the LaCATHODE anomaly detection pipeline. "
+                        "You have access to tools: FastJet, Preparation, Trainer, Oracle, and Report Generator.\n\n"
+                        "EXECUTION RULES:\n"
+                        "1. SMART CACHING: Before running 'fastjet_tool', ALWAYS check if the output files (e.g., 'signal_events.jsonl') already exist using 'list_any_cwd_folder'. "
+                        "If they exist, SKIP Step 1. Do not overwrite existing data unless explicitly asked.\n"
+                        "2. PIPELINE: FastJet -> Preparation -> Training -> Oracle -> Report Generator.\n"
+                        "3. HANDOFF: The 'lacathode_report_generator_tool' will output a filename (e.g., 'llm_enhanced_report.txt') but NOT the content. "
+                        "Your job is to generate this file and then immediately tell the Scientist: 'Report generated at [filename]. Please read it for details.' "
+                        "Do NOT try to summarize the report yourself, as you cannot see the content."
+                    )
                 }
             ],
         }
@@ -91,7 +100,7 @@ class Framework:
         # Resume logic
         resume_job_id = kwargs.get('resume_job_id', None)
         resume_job_data = self.get_resume_job_data(resume_job_id)
-        """
+
         self.orchestrator_agent = OrchestratorAgent(
             model=self.model,
             tokenizer=self.tokenizer,
@@ -100,10 +109,8 @@ class Framework:
                 resume_job_data=resume_job_data
             ),
             rag_engine=self.rag_engine,
-            model_loader=self.load_model,
-            model_unloader=self.unload_model
         )
-        """
+
         self.analytics_agent = AnalyticsAgent(
             model=self.model,
             tokenizer=self.tokenizer,
@@ -112,15 +119,21 @@ class Framework:
                 resume_job_data=resume_job_data
             ),
             rag_engine=self.rag_engine,
-            model_loader=self.load_model,
-            model_unloader=self.unload_model
         )
+
+        # Register peers
+        self.orchestrator_agent.register_peer('AnalyticsAgent', self.analytics_agent)
+        self.analytics_agent.register_peer('OrchestratorAgent', self.orchestrator_agent)
 
         # If resuming, process the last tool result offline in a separate thread
         # This ensures Gradio launches immediately while the agent works in the background
+        self.offline_resume_temp_data = None
+        """
         resume_thread = threading.Thread(target=self.process_offline_resume)
         resume_thread.daemon = True # Ensures thread cleans up when main process exits
         resume_thread.start()
+        """
+        self.process_offline_resume()
     
     def get_resume_job_data(self, resume_job_id: str):
         if resume_job_id:
@@ -147,12 +160,34 @@ class Framework:
             print(f"Restoring messages for {agent} from resume data.")
             initial_messages = resume_job_data["original_state"]["messages"]
 
+            # Extract the last toold request's id
+            last_tool_call = None
+            for msg in reversed(initial_messages):
+                if msg['role'] == 'assistant' and 'tool_call' in msg:
+                    last_tool_call = msg
+                    break
+
+            tool_call_id = None
+            if last_tool_call:
+                print("No tool call found in previous messages!")
+                tool_call_id = last_tool_call.get('id', None)
+            
+            if not tool_call_id:
+                tool_call_id = uuid.uuid4().hex
+
             # Inject tool result from previous run
+            user_msg = {
+                "role": "user",
+                "content": "Resuming from previous tool result.",
+                "id": tool_call_id
+            }
             tool_result_msg = {
                 "role": "tool",
                 "content": resume_job_data["tool_result"],
+                "id": tool_call_id
             }
 
+            #initial_messages.append(user_msg)
             initial_messages.append(tool_result_msg)
 
             return initial_messages
@@ -169,13 +204,16 @@ class Framework:
             
             # Run the agent loop with empty input to process the result
             # We iterate over the generator to force execution, but ignore the output
-            generator = self.analytics_agent.respond("", message_id=uuid.uuid4().hex)
+            generator = self.analytics_agent.respond("", message_id=self.analytics_agent.messages[-1]['id'])
             try:
-                for _ in generator:
-                    pass
+                for parsed in generator:
+                    #self.offline_resume_temp_data = parsed
+                    print("parsed: " + str(parsed))
                 print(">>> Offline processing complete.")
             except SystemExit:
                 pass # Handle async tool exits gracefully
+            finally:
+                self.offline_resume_temp_data = None
 
     def load_model(self):
         print("Framework: Loading model reference...")
@@ -244,19 +282,27 @@ class Framework:
             log_cuda_memory("CUDA Memory After unloading model for heavy tool")
     
     def chat_function(self, user_input, chat_history):
+        """Gradio chat function to interact with the analytics agent
+        Yields updated chat history with streaming responses.
+
+        Args:
+            user_input (str): The user's input message.
+            chat_history (list): The current chat history. Not used, as we fetch from agent state.
+        """
         message_id = uuid.uuid4().hex
 
-        # Create the user message object manually to append to history
-        user_msg = gr.ChatMessage(role="user", content=user_input)
-
         # Get the generator from the agent
-        parsed_generator = self.analytics_agent.respond(user_input, message_id, chat_history)
+        parsed_generator = self.analytics_agent.respond(user_input, message_id)
 
         for multiple_parsed in parsed_generator:
-            response_bubbles = []
+            # Keep it in sync with agents memory
+            full_history = self.analytics_agent.messages_to_gradio_history()
+            
+            # In progress response bubbles
+            current_response_bubbles = []
             for parsed in multiple_parsed:
                 if parsed["thinking"]:
-                    response_bubbles.append(gr.ChatMessage(
+                    current_response_bubbles.append(gr.ChatMessage(
                         role="assistant",
                         content=f"{parsed['thinking']}",
                         metadata={"title": "Thinking", "id": message_id}
@@ -265,28 +311,28 @@ class Framework:
                 if parsed["tool_call_json"]:
                     tool_name = parsed["tool_call_json"].get("name", "unknown_tool")
 
-                    response_bubbles.append(gr.ChatMessage(
+                    current_response_bubbles.append(gr.ChatMessage(
                         role="assistant",
                         content=f"Invoking tool... ({tool_name})",
                         metadata={"title": "Tool Call", "id": message_id}
                     ))
 
                 if parsed.get("tool_result"):
-                    response_bubbles.append(gr.ChatMessage(
+                    current_response_bubbles.append(gr.ChatMessage(
                         role="assistant", 
                         content=f"Tool Result:\n{parsed['tool_result']}",
                         metadata={"title": "Tool Result", "id": message_id}
                     ))
                 
                 if parsed["content"]:
-                    response_bubbles.append(gr.ChatMessage(
+                    current_response_bubbles.append(gr.ChatMessage(
                         role="assistant", 
                         content=parsed["content"],
                         metadata={"id": message_id}
                     ))
             
-            if response_bubbles:
-                yield chat_history + [user_msg] + response_bubbles
+            if current_response_bubbles: # Only yield if there is something new
+                yield full_history + current_response_bubbles
 
     def get_latest_history(self):
         """Helper to fetch the current agent state for the UI"""
@@ -303,27 +349,26 @@ class Framework:
 
             chatbot.clear(fn=lambda: self.analytics_agent.messages.clear())
 
-            gr.ChatInterface(
-                fn=self.chat_function,
-                title="Interactive Chat with Analytics Agent",
-                description="Chat interface for interacting with the analytics agent.",
-                type="messages",
-                chatbot=chatbot,
-            )
+            msg = gr.Textbox(label="Your Input", placeholder="Type here...", autofocus=True)
 
-            # AUTO-RESUME TRIGGER
-            # If we are resuming, we want the bot to look at the Tool Result 
-            # (which is the last message) and generate an answer immediately.
-            """
-            if self.analytics_agent.messages and self.analytics_agent.messages[-1]['role'] == 'tool':
-                def auto_trigger():
-                    # Pass an empty user string, the agent handles the rest
-                    yield from self.chat_function("")
+            def submit_wrapper(user_input):
+                # Initialize backup history in case generator fails immediately
+                last_history = [] 
                 
-                # Queue this to run immediately on load
-                demo.load(auto_trigger, outputs=[chatbot])
-            """
-            demo.load(fn=self.get_latest_history, outputs=chatbot)
+                gen = self.chat_function(user_input, [])
+                
+                # STREAMING: Lock input box, clear text, update chat
+                for history in gen:
+                    last_history = history
+                    # interactive=False disables the box while processing
+                    yield gr.update(value="", interactive=False), history
+                
+                # FINISHED: Unlock input box, keep final chat history
+                yield gr.update(interactive=True), last_history
+
+            msg.submit(fn=submit_wrapper, inputs=[msg], outputs=[msg, chatbot])
+
+            #demo.load(fn=self.get_latest_history, outputs=chatbot)
         demo.launch(share=False)
 
 if __name__ == "__main__":

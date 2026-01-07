@@ -73,7 +73,8 @@ class LaCATHODETrainer:
     def __init__(self, data_dir, model_dir):
         self.data_dir = data_dir
         self.model_dir = model_dir
-        os.makedirs(self.model_dir, exist_ok=True)
+        if not os.path.exists(self.model_dir):
+            os.makedirs(self.model_dir, exist_ok=True)
         
         # Preprocessors
         # LogitScaler helps stretch bounded data (like 0-1 scores) to infinity
