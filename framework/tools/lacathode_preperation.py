@@ -44,6 +44,9 @@ parser.add_argument('--max_mass', type=float, default=3.8,
 parser.add_argument('--side_band_max', type=float, default=4.0,
                     help='Maximum mass for Sideband (SB) region in TeV')
 
+parser.add_argument('--tho_21_threshold', type=float, default=None,
+                    help='Threshold for Tau2/1 ratio filtering (example feature)')
+
 args = parser.parse_args()
 
 GRAPHS_DIR = 'toolout/graphs/'
@@ -109,6 +112,8 @@ class LaCATHODEPreperation:
         if self.side_band_min >= self.min_mass or self.side_band_max <= self.max_mass:
             print(f"{self.side_band_min} {self.min_mass} {self.max_mass} {self.side_band_max}")
             raise ValueError("Sideband extremes must be outside the Signal Region window.")
+        
+        self.tho_21_threshold = args.get('tho_21_threshold', None)  # Example threshold for Tau2/1 ratio filtering
 
         self.feature_dictionary = lacathode_event_dictionary.tags
 
@@ -156,6 +161,12 @@ class LaCATHODEPreperation:
                     # Calculate Tau 2/1 ratios for both jets
                     tau2_over_tau1_j1 = jets[0].get('tau_2', 0.0) / (jets[0].get('tau_1', 0.0) + 1e-5) # Avoid division by zero
                     tau2_over_tau1_j2 = jets[1].get('tau_2', 0.0) / (jets[1].get('tau_1', 0.0) + 1e-5) # Avoid division by zero
+
+                    # Apply Tau2/1 filtering if threshold is set
+                    if self.tho_21_threshold is not None:
+                        if tau2_over_tau1_j1 > self.tho_21_threshold or tau2_over_tau1_j2 > self.tho_21_threshold:
+                            # Skip this event
+                            continue
 
                     if normalize:
                         # Normalize features as needed
@@ -280,9 +291,6 @@ class LaCATHODEPreperation:
         """
         import matplotlib.pyplot as plt
 
-        if not os.path.exists('graphs'):
-            os.makedirs('graphs')
-
         num_features = data_array.shape[1]
         columns = 4
         rows = (num_features + columns - 1) // columns
@@ -295,7 +303,8 @@ class LaCATHODEPreperation:
             axs[i // columns][i % columns].set_ylabel('Counts')
             axs[i // columns][i % columns].grid()
 
-        plt.savefig(f'toolout/graphs/feature_distribution_{data_label}.png')
+        save_to = os.path.join(GRAPHS_DIR, f'feature_distribution_{data_label}.png')
+        plt.savefig(save_to)
 
     def training_mode(self):
         """

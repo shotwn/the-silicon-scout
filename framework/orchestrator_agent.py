@@ -3,11 +3,9 @@ Orchestrator Agent that extends LocalAgent with specialized tools for data proce
 """
 
 import os
-import sys
-import subprocess
 
 from framework.local_agent import LocalAgent
-from framework.tools.worker_tools import query_knowledge_base_tool
+from framework.tools.worker_tools import query_knowledge_base_tool, query_gemma_cloud_tool
 
 class OrchestratorAgent(LocalAgent):
     def get_tools(self):
@@ -147,6 +145,7 @@ class OrchestratorAgent(LocalAgent):
             """
             # Uses the generic method from the parent class
             return self.talk_to_peer("AnalyticsAgent", instructions)
+
         
         tools = [
             delegate_to_analytics,
@@ -158,7 +157,11 @@ class OrchestratorAgent(LocalAgent):
         return tools
     
     def get_async_tools(self):
+        async_tools = [
+            query_gemma_cloud_tool
+        ]
+
         if self.rag_engine_enabled:
-            return [query_knowledge_base_tool]
-        else:
-            return []
+            async_tools.append(query_knowledge_base_tool)
+        
+        return async_tools

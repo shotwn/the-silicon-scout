@@ -2,6 +2,8 @@ import sys
 import subprocess
 import os
 
+from framework.tools.gemma_client import query_gemma_cloud
+
 def fastjet_tool(
     input_file: str,
     numpy_read_chunk_size: int | None = None,
@@ -80,6 +82,7 @@ def lacathode_preparation_tool(
     min_mass: float | None = None,
     max_mass: float | None = None,
     side_band_max: float | None = None,
+    tho_21_threshold: float | None = None,
 ):
     """
     Tool to run LaCATHODE data preparation.
@@ -94,6 +97,10 @@ def lacathode_preparation_tool(
     As a clarification, R&D data usually has both background and signal files, so use 'training' mode.
     Real life or blackbox data usually has only unlabeled file, so use 'inference' mode.
 
+    Always make sure side_band_min < min_mass < max_mass < side_band_max.
+
+    Make sure Signal Region request is not too wide. 
+
     Expense is 5 GPU minutes for large datasets.
     Args:
         run_id: Unique identifier for the run. Determines the output directory. (required)
@@ -101,15 +108,18 @@ def lacathode_preparation_tool(
         input_background: Path to background data file (required for training mode).
         input_signal: Path to signal data file (required for training mode).
         input_unlabeled: Path to unlabeled data file (required for inference mode).
-        shuffle_seed: Random seed for shuffling.
-        training_fraction: Fraction of data to use for training.
+        shuffle_seed: Random seed for shuffling. (optional)
+        training_fraction: Fraction of data to use for training. (optional)
         validation_fraction: Fraction of data to use for validation.
-        side_band_min: Minimum mass for Sideband (SB) region in TeV.
+        side_band_min: Minimum mass for Sideband (SB) region in TeV. (optional)
         min_mass: Minimum mass for Signal Region (SR) window in TeV.
         max_mass: Maximum mass for Signal Region (SR) window in TeV.
-        side_band_max: Maximum mass for Sideband (SB) region in TeV.
+        side_band_max: Maximum mass for Sideband (SB) region in TeV. (optional)
+        tho_21_threshold: Threshold for Tau2/1 ratio filtering (testing feature, might give wrong results). (optional)
     """
     
+    # min_mass and max_mass defaults were hidden on purpose to force LLM change them run to run properly.
+
     # Validation logic for required inputs based on mode
     if run_mode == 'training':
         if not input_background or not input_signal:
@@ -151,6 +161,8 @@ def lacathode_preparation_tool(
         command += ["--max_mass", str(max_mass)]
     if side_band_max is not None:
         command += ["--side_band_max", str(side_band_max)]
+    if tho_21_threshold is not None:
+        command += ["--tho_21_threshold", str(tho_21_threshold)]
 
 
     print(f"Worker: Executing command: {' '.join(command)}")
@@ -286,7 +298,7 @@ def lacathode_oracle_tool(
 
     # 2. Define Explicit Output Path
     # We save directly to the model directory, but as a full path
-    output_file = f"{model_dir}/inference_scores.npy"
+    output_file = os.path.join(model_dir, "inference_scores.npy")
 
     if data_dir:
         command += ["--data_dir", data_dir]
@@ -400,3 +412,19 @@ def query_knowledge_base_tool(
     )
 
     return result.stdout
+
+def query_gemma_cloud_tool(
+    query: str,
+):
+    """
+    Tool to query Google Gemma Cloud.
+
+    Use only after trying query_knowledge_base_tool first.
+
+    Paid service, use sparingly.
+    
+    Args:
+        query: The input query string to send to Gemma.
+    """
+
+    return query_gemma_cloud(query)

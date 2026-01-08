@@ -12,6 +12,7 @@ import glob
 
 from framework.orchestrator_agent import OrchestratorAgent
 from framework.analytics_agent import AnalyticsAgent
+from framework.tools.gemma_client import get_runtime_history_file
 from framework.logger import get_logger
 from logging import DEBUG, INFO, WARNING, ERROR
 # from framework.utilities.cuda_ram_debug import log_cuda_memory # Optional, likely not needed for Ollama
@@ -42,15 +43,17 @@ class Framework:
                         "1. DIRECT: Issue high-level commands to the Analyst (e.g., 'Run analysis on the 3.5 TeV region').\n"
                         "2. BE CLEAR: Do not forget you guide another LLM agent. Be clear with your instructions. "
                         "Make sure the paths and parameters you provide are correct and unambiguous.\n"
-                        "3. READ: When the Analyst tells you a report has been generated (e.g., 'llm_enhanced_report.txt'), "
+                        "3. BE INFORMED: Before starting costly analysis, use your query_knowledge_base_tool to research physics concepts "
+                        "and your query_gemma_cloud_tool to query the external knowledge base.\n"
+                        "4. READ: When the Analyst tells you a report has been generated (e.g., 'llm_enhanced_report.txt'), "
                         "you MUST use your file reading tool (e.g., 'read_any_file') to inspect the contents of that file immediately.\n"
-                        "4. ANALYZE: Read the report created by the Analyst.\n"
-                        "5. KNOWLEDGE BASE: To understand the report, use your query_knowledge_base_tool to query the physics knowledge base for relevant information.\n"
-                        "6. DECIDE: \n"
+                        "5. ANALYZE: Read the report created by the Analyst.\n"
+                        "6. KNOWLEDGE BASE: To understand the report, use your query_knowledge_base_tool to query the physics knowledge base for relevant information.\n"
+                        "7. DECIDE: \n"
                         "   - If Significance looks convincing and other data seems feasible: Recommend publication.\n"
                         "   - If Significance looks unconvincing: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
                         "   - If Significance is high near band edges: Suggest refining the mass range.\n"
-                        "7. DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
+                        "8. DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
                     )
                 }
             ],
@@ -378,5 +381,26 @@ class Framework:
                             fn=self.get_gallery_images,
                             inputs=None,
                             outputs=gallery
+                        )
+                    
+                    with gr.Tab("Tools", scale=1):
+                        gr.Markdown("### 📚 External Knowledge Logs (Gemma)")
+                        gr.Markdown("This log shows the specific questions asked to the external knowledge base and the responses received.")
+                        
+                        refresh_tools_btn = gr.Button("🔄 Refresh Logs")
+                        tools_log_display = gr.Markdown("No logs yet...")
+                        
+                        # Load initial state
+                        demo.load(
+                            fn=get_runtime_history_file,
+                            inputs=None,
+                            outputs=tools_log_display
+                        )
+
+                        # Manual Refresh
+                        refresh_tools_btn.click(
+                            fn=get_runtime_history_file,
+                            inputs=None,
+                            outputs=tools_log_display
                         )
         demo.launch(share=False, server_port=port)

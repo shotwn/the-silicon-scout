@@ -180,9 +180,9 @@ class LaCATHODEOracle:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LaCATHODE Oracle Inference")
     # ... [Keep existing arguments] ...
-    parser.add_argument("--data_dir", type=str, default="./toolout/lacathode_input_data/",
+    parser.add_argument("--data_dir", type=str, default="toolout/lacathode_input_data/",
                         help="Directory containing ORIGINAL training data (needed for calibration)")
-    parser.add_argument("--model_dir", type=str, default="./toolout/lacathode_trained_models/",
+    parser.add_argument("--model_dir", type=str, default="toolout/lacathode_trained_models/",
                         help="Directory containing trained models")
     parser.add_argument("--inference_file", type=str, required=True,
                         help="Path to the file to predict on (e.g., innerdata_inference.npy)")

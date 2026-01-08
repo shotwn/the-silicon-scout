@@ -35,6 +35,10 @@ einops # Required by some transformer models
 chromadb
 sentence-transformers
 
+# For external knowledge source access
+python-dotenv
+google-genai
+
 # --- Windows Specific (CUDA 12.9) ---
 # Only install these on Windows
 torch @ https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp312-cp312-win_amd64.whl ; sys_platform == 'win32'

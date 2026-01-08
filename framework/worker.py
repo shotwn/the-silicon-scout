@@ -7,7 +7,7 @@ import argparse
 
 from framework.tools.worker_tools import fastjet_tool, lacathode_preparation_tool, \
     lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool, \
-    query_knowledge_base_tool
+    query_knowledge_base_tool, query_gemma_cloud_tool
 from framework.logger import get_logger
 
 logger = get_logger("Worker")
@@ -19,6 +19,7 @@ TOOL_REGISTRY = {
     "lacathode_oracle_tool": lacathode_oracle_tool,
     "lacathode_report_generator_tool": lacathode_report_generator_tool,
     "query_knowledge_base_tool": query_knowledge_base_tool,
+    "query_gemma_cloud_tool": query_gemma_cloud_tool,
 }
 
 PENDING_DIR = os.path.join("jobs", "pending")

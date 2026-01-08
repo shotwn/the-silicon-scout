@@ -209,15 +209,7 @@ import multiprocessing
 num_cpus = multiprocessing.cpu_count()
 print(f"Number of CPU cores: {num_cpus}")
 
-if __name__ == "__main__":
-    # Create output dir if not exists
-    if not os.path.exists("output"):
-        os.makedirs("output")
-    else:
-        # Clear output dir
-        for file in os.listdir("output"):
-            os.remove(os.path.join("output", file))
-            
+if __name__ == "__main__":            
     gen = generator()
     chunk_index = 0
     procs: list[multiprocessing.Process] = []
