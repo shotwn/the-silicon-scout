@@ -18,6 +18,8 @@ parser.add_argument("--top_percentile", type=float, default=99.0,
                     help="Percentile threshold to define anomaly candidates")
 parser.add_argument("--bin_count", type=int, default=18,
                     help="Number of bins for mass histogram")
+parser.add_argument("--min_events_per_bin", type=int, default=200,
+                    help="Minimum events required in a bin to calculate excess factor (filters noise).")
 
 def generate_report(**args):
     data_file = args['data_file']
@@ -69,7 +71,13 @@ def generate_report(**args):
     
     excess_factor = density / 0.01 # 1.0 = Normal, >1.0 = Excess
 
-    # --- CALCULATE KEY METRICS ---
+    # Filter out bins with low statistics to prevent "100.0" artifacts
+    # If a bin has fewer than 500 events, we consider the excess calculation unreliable.
+    MIN_EVENTS_THRESHOLD = args.get("min_events_per_bin", 500)
+    low_stats_mask = hist_all < MIN_EVENTS_THRESHOLD
+    excess_factor[low_stats_mask] = 0.0 
+
+    # Calculate Max Excess Info
     max_excess_idx = np.argmax(excess_factor)
     max_excess_val = excess_factor[max_excess_idx]
     
@@ -160,10 +168,10 @@ def generate_report(**args):
         
     if not print_report:
         print("<tool_result>")
-        print(f"Enhanced Report saved to {output_file}")
+        print(f"Enhanced Report saved to {output_file} relative to current working directory.")
         print("</tool_result>")
     
-    print(f"Enhanced Report saved to {output_file}")
+    print(f"Enhanced Report saved to {output_file} relative to current working directory.")
 
 if __name__ == "__main__":
     args = parser.parse_args()

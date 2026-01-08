@@ -84,6 +84,8 @@ distro==1.9.0
     # via posthog
 durationpy==0.10
     # via kubernetes
+einops==0.8.1
+    # via -r requirements.in
 fastapi==0.121.3
     # via gradio
 fastjet==3.5.1.2

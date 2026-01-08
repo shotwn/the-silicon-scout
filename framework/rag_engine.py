@@ -2,49 +2,51 @@ import os
 import uuid
 import chromadb
 from sentence_transformers import SentenceTransformer
+import argparse
+import torch
 
 class RAGEngine:
-    def __init__(self, persist_directory="./rag_db", model_name="all-MiniLM-L6-v2"):
+    def __init__(self, persist_directory="./rag_db", model_name="nomic-ai/nomic-embed-text-v1.5"):
         print("--- Initializing RAG (ChromaDB + CPU Embeddings) ---")
         
-        # 1. Force Embedding Model to CPU (Saves 8GB VRAM for Qwen)
+        # Pick device to run embeddings on
+        if torch.cuda.is_available():
+            device = 'cuda'
+        elif torch.backends.mps.is_available():
+            device = 'mps'
+        else:
+            device = 'cpu'
+
+        print(f"Using device for embeddings: {device}")
         # This model is small (~80MB) and runs fast on system RAM.
-        self.embed_model = SentenceTransformer(model_name, device='cpu')
+        self.embed_model = SentenceTransformer(model_name, device=device, trust_remote_code=True)
         
-        # 2. Initialize ChromaDB (Persistent)
+        # Initialize ChromaDB (Persistent)
         self.client = chromadb.PersistentClient(path=persist_directory, settings=chromadb.config.Settings(anonymized_telemetry=False))
         self.collection = self.client.get_or_create_collection(name="physics_knowledge")
 
-    def _custom_text_splitter(self, text, chunk_size=1000, overlap=100):
+    def _custom_text_splitter(self, text, chunk_size=2000, overlap=200):
         """
-        A simple sliding window splitter to replace LangChain.
-        Splits text into chunks of `chunk_size` characters with `overlap`.
+        A simple custom text splitter that splits text into chunks of specified size with overlap.
         """
+        paragraphs = text.split('\n\n')
         chunks = []
-        start = 0
-        text_len = len(text)
+        current_chunk = ""
         
-        while start < text_len:
-            # Calculate end index
-            end = start + chunk_size
+        for para in paragraphs:
+            if len(current_chunk) + len(para) < chunk_size:
+                current_chunk += para + "\n\n"
+            else:
+                chunks.append(current_chunk.strip())
+                # Start new chunk with overlap (last 100 chars of previous)
+                current_chunk = current_chunk[-overlap:] + para + "\n\n"
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
             
-            # Slice the text
-            chunk = text[start:end]
-            
-            # Only add if the chunk has substantial content
-            if len(chunk.strip()) > 50:
-                chunks.append(chunk)
-            
-            # Move the window forward, but step back by overlap
-            start += (chunk_size - overlap)
-            
-            # Safety break for edge cases
-            if start >= text_len:
-                break
-                
         return chunks
 
-    def ingest_files(self, articles_dir="articles"):
+    def ingest_files(self, articles_dir="knowledge_base"):
         import pymupdf4llm 
         
         if not os.path.exists(articles_dir):
@@ -55,30 +57,53 @@ class RAGEngine:
         
         for filename in os.listdir(articles_dir):
             # Check if file is already in DB to save time
-            existing = self.collection.get(where={"source": filename})
-            if existing['ids']:
-                continue # Skip already indexed files
-
             file_path = os.path.join(articles_dir, filename)
+            current_mtime = os.path.getmtime(file_path)
+
+            existing = self.collection.get(where={"source": filename})
+            
+            # Check if file is new OR modified since last index
+            if existing['ids']:
+                stored_mtime = existing['metadatas'][0].get('mtime', 0)
+                if current_mtime <= stored_mtime:
+                    continue # Truly skip only if unchanged
+                else:
+                    print(f"File {filename} modified. Re-indexing...")
+                    self.collection.delete(where={"source": filename}) # Clear old chunks
+            
             try:
                 print(f"Processing {filename}...")
-                # 1. Extract Text
-                text_content = pymupdf4llm.to_markdown(file_path)
+                # Extract Text
+                if filename.lower().endswith(('.txt', '.md')):
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        text_content = f.read()
+                elif filename.lower().endswith(('.pdf', '.docx')):
+                    text_content = pymupdf4llm.to_markdown(file_path)
+                else:
+                    print(f"Unsupported file format for {filename}. Skipping.")
+                    continue
                 
-                # 2. Split Text (Custom function)
+                # Split Text (Custom function)
                 chunks = self._custom_text_splitter(text_content)
+
+                # Nomic requires this prefix for the embedding model
+                prefixed_chunks = ["search_document: " + c for c in chunks]
                 
-                # 3. Generate Embeddings on CPU
-                # converting to list is required for Chroma
-                embeddings = self.embed_model.encode(chunks, convert_to_numpy=True).tolist()
+                # Encode the PREFIXED text
+                embeddings = self.embed_model.encode(
+                    prefixed_chunks, 
+                    convert_to_numpy=True,
+                    normalize_embeddings=True
+                ).tolist()
                 
-                # 4. Store in Chroma
+                # Store in Chroma
+                # Documents should be the ORIGINAL (clean) text: chunks
                 ids = [str(uuid.uuid4()) for _ in chunks]
-                metadatas = [{"source": filename} for _ in chunks]
+                metadatas = [{"source": filename, "mtime": os.path.getmtime(file_path)} for _ in chunks]
                 
                 self.collection.add(
-                    documents=chunks,
-                    embeddings=embeddings, # We provide CPU embeddings explicitly
+                    documents=chunks,     
+                    embeddings=embeddings,
                     metadatas=metadatas,
                     ids=ids
                 )
@@ -88,20 +113,51 @@ class RAGEngine:
                 print(f"Failed to index {filename}: {e}")
 
     def query(self, query_text, n_results=3):
-        # 1. Embed the user query on CPU
-        query_embedding = self.embed_model.encode([query_text], convert_to_numpy=True).tolist()
+        # Embed the user query on the selected device
+        search_query = f"search_query: {query_text}"
         
-        # 2. Search Chroma
+        query_embedding = self.embed_model.encode(
+            [search_query], 
+            convert_to_numpy=True, 
+            normalize_embeddings=True
+        ).tolist()
+        
+        # Search Chroma
         results = self.collection.query(
             query_embeddings=query_embedding,
             n_results=n_results
         )
+
+        # Filter weak matches
+        valid_docs = []
+        for i, dist in enumerate(results['distances'][0]):
+            print(f"Distance for doc {i}: {dist}")
+            # Threshold depends on model/metric (L2 vs Cosine)
+            # With normalized embeddings, L2 distance ranges from 0 (identical) to ~1.414 (opposite)
+            if dist < 1.1: 
+                valid_docs.append(results['documents'][0][i])
         
-        # 3. Format results for the LLM
+        if not valid_docs:
+            return "No confident matches found in knowledge base."
+        
+        # Format results for the LLM
         retrieved_text = ""
-        if results['documents']:
-            for i, doc in enumerate(results['documents'][0]):
+        if valid_docs:
+            for i, doc in enumerate(valid_docs):
                 source = results['metadatas'][0][i]['source']
-                retrieved_text += f"\n--- Context from {source} ---\n{doc}\n"
+                retrieved_text += f"\n ## Context from {source}\n{doc}\n"
         
         return retrieved_text if retrieved_text else "No relevant information found in knowledge base."
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="RAG Engine Ingestion and Querying")
+    parser.add_argument("--ingest", action="store_true", help="Ingest documents from the articles directory")
+    parser.add_argument("--query", type=str, help="Query string to search the knowledge base")
+    args = parser.parse_args()
+    rag_engine = RAGEngine()
+    if args.ingest:
+        rag_engine.ingest_files()  # Ingest documents from 'articles' directory
+
+    if args.query:
+        response = rag_engine.query(args.query)
+        print(f"<tool_result>\n{response}\n</tool_result>")

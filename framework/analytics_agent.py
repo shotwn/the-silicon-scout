@@ -22,7 +22,7 @@ class AnalyticsAgent(LocalAgent):
         ]
 
     def get_tools(self):
-        def list_any_cwd_folder(folder_path: str) -> str:
+        def list_folders(folder_path: str) -> str:
             """
             Tool to list files in any specified folder in the current working directory.
             Args:
@@ -30,15 +30,16 @@ class AnalyticsAgent(LocalAgent):
             Returns:
                 A string listing the files in the specified folder.
             """
-            folder_path = os.path.join(os.getcwd(), folder_path)
+            full_folder_path = os.path.join(os.getcwd(), folder_path)
             try:
-                files = os.listdir(folder_path)
+                files = os.listdir(full_folder_path)
                 return f"Files in '{folder_path}': {', '.join(files)}"
             except FileNotFoundError:
                 return f"Directory '{folder_path}' not found."
     
-        def report_to_orchestrator(self, reports: str):
+        def report_to_orchestrator(reports: str):
             """
+                ! There is no need for this because orchestrator can directly read the output if it called us.
                 Reports back to the Orchestrator Agent.
                 Orchestrator is the parent agent that can give high-level instructions.
                 
@@ -46,8 +47,8 @@ class AnalyticsAgent(LocalAgent):
                     reports: The report string to send back to the Orchestrator.
                 Returns:
             """
-            self.talk_to_peer(agent_name="orchestrator_agent", message=reports)
+            self.talk_to_peer(peer_name="OrchestratorAgent", message=reports)
 
             return "Report sent to Orchestrator Agent. No further response needed."
 
-        return [list_any_cwd_folder, report_to_orchestrator]
+        return [list_folders]

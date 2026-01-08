@@ -5,14 +5,15 @@ import os
 import argparse
 import threading
 import time
+import glob
 
 # Removed transformers imports
 # from transformers import ... 
 
-from framework.rag_engine import RAGEngine
 from framework.orchestrator_agent import OrchestratorAgent
 from framework.analytics_agent import AnalyticsAgent
 from framework.logger import get_logger
+from logging import DEBUG, INFO, WARNING, ERROR
 # from framework.utilities.cuda_ram_debug import log_cuda_memory # Optional, likely not needed for Ollama
 
 class Framework:
@@ -23,10 +24,10 @@ class Framework:
             raise ValueError("Base model name must be provided for Ollama models.")
         
         # Initialize Logger
-        self.logger = get_logger("Framework")
+        self.logger = get_logger("Framework", level=INFO)
         
         # Initialize RAG Engine
-        self.rag_engine = None  # Disable RAG for now
+        self.rag_engine_enabled = True
 
         # Initial messages per agent
         self.default_initial_messages = {
@@ -36,17 +37,20 @@ class Framework:
                     "content": (
                         "You are a Senior Particle Physicist (The Scientist). "
                         "You direct an Analyst Agent to find anomalies in collider data. "
-                        "Your Goal: Discover new physics anomalies with >3 sigma significance.\n\n"
+                        "Your Goal: Discover new physics anomalies with >2-4 sigma significance.\n\n"
                         "PROTOCOL - THE REPORTING LOOP:\n"
                         "1. DIRECT: Issue high-level commands to the Analyst (e.g., 'Run analysis on the 3.5 TeV region').\n"
-                        "2. READ: When the Analyst tells you a report has been generated (e.g., 'llm_enhanced_report.txt'), "
-                        "you MUST use your file reading tool (e.g., 'read_any_cwd_file' or 'read_article_file') to inspect the contents of that file immediately.\n"
-                        "3. ANALYZE: Read the report created by the Analyst.\n"
-                        "4. DECIDE: \n"
-                        "   - If Significance > 3.0: Recommend publication.\n"
-                        "   - If Significance < 3.0: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
+                        "2. BE CLEAR: Do not forget you guide another LLM agent. Be clear with your instructions. "
+                        "Make sure the paths and parameters you provide are correct and unambiguous.\n"
+                        "3. READ: When the Analyst tells you a report has been generated (e.g., 'llm_enhanced_report.txt'), "
+                        "you MUST use your file reading tool (e.g., 'read_any_file') to inspect the contents of that file immediately.\n"
+                        "4. ANALYZE: Read the report created by the Analyst.\n"
+                        "5. KNOWLEDGE BASE: To understand the report, use your query_knowledge_base_tool to query the physics knowledge base for relevant information.\n"
+                        "6. DECIDE: \n"
+                        "   - If Significance looks convincing and other data seems feasible: Recommend publication.\n"
+                        "   - If Significance looks unconvincing: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
                         "   - If Significance is high near band edges: Suggest refining the mass range.\n"
-                        "5. DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
+                        "7. DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
                     )
                 }
             ],
@@ -55,12 +59,22 @@ class Framework:
                     "role": "system", 
                     "content": (
                         "You are an Expert Research Technician (The Analyst). "
+                        "Your user is an another LLM agent called the Orchestrator (The Scientist). "
                         "You operate the LaCATHODE anomaly detection pipeline. "
                         "You have access to tools: FastJet, Preparation, Trainer, Oracle, and Report Generator.\n\n"
-                        "EXECUTION RULES:\n"
-                        "1. SMART CACHING: Check if input/output files exist before running tools.\n"
-                        "2. FULL PIPELINE: FastJet -> Preparation -> Training -> Oracle -> Report Generator.\n"
-                        "3. PARTIAL RE-RUNS: You can re-run any step if parameters change or if directed by the Orchestrator.\n"
+                        "## EXECUTION RULES:\n"
+                        "1. FILE EXISTENCE: Check if input/output files exist with list_any_folder tool before running tools.\n"
+                        "2. NO OVERWRITES: Do not overwrite existing files, unless explicitly instructed by the Orchestrator.\n"
+                        "3. NO DUPLICATE RUN IDS: Always use a new run_id for each LaCATHODE tool invocation to avoid conflicts.\n"
+                        "4. TOOL USAGE: One tool at a time, wait for completion before next.\n"
+                        "5. FULL PIPELINE: FastJet -> Preparation -> Training -> Oracle -> Report Generator.\n"
+                        "6. PARTIAL RE-RUNS: You can re-run steps to increase report data, but take cost into account.\n"
+                        "7. REPORTING: After generating a report, inform the Orchestrator and await further instructions.\n"
+                        "## Example reruns:\n"
+                        "- If the Orchestrator suggests lowering min_pt, you can re-run Preparation and subsequent steps.\n"
+                        "- If the Orchestrator wants a finer mass binning, you can re-run Report Generator with updated parameters.\n"
+                        "- If you are not satisfied with the report, you can re-run the report generator\n\n"
+                        "Use your own judgement to balance cost vs information gain when re-running tools."
                     )
                 }
             ],
@@ -73,7 +87,7 @@ class Framework:
             initial_messages=self.get_initial_messages(
                 agent="OrchestratorAgent"
             ),
-            rag_engine=self.rag_engine,
+            rag_engine_enabled=self.rag_engine_enabled,
         )
 
         self.analytics_agent = AnalyticsAgent(
@@ -82,7 +96,7 @@ class Framework:
             initial_messages=self.get_initial_messages(
                 agent="AnalyticsAgent"
             ),
-            rag_engine=self.rag_engine,
+            rag_engine_enabled=self.rag_engine_enabled,
         )
 
         # Register peers
@@ -94,6 +108,9 @@ class Framework:
             "OrchestratorAgent": self.orchestrator_agent,
             "AnalyticsAgent": self.analytics_agent,
         }
+
+        # Make one active agent
+        self.active_agent = self.orchestrator_agent
 
         # If resume arg provided, trigger resume
         # Resume logic
@@ -110,7 +127,6 @@ class Framework:
     def get_initial_messages(self, agent):
         return self.default_initial_messages.get(agent, [])
 
-    # Removed load_model / unload_model functions
 
     def trigger_forced_resume(self, job_id):
         """Loads state from a completed job file to resume."""
@@ -160,7 +176,7 @@ class Framework:
 
     def check_background_updates(self):
         """Polled by Gradio Timer."""
-        full_history = self.get_latest_history()
+        full_history = self.get_agent_history(self.active_agent.__class__.__name__)
         
         if self.forced_resume_in_progress:
             return (
@@ -175,57 +191,192 @@ class Framework:
                 gr.update(active=False) # Stop the timer
             )
 
+    def export_all_histories(self):
+        """
+        Dumps the full message history of all agents to a JSON file for download.
+        """
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = os.path.join("exports", f"session_history_{timestamp}.json")
+        os.makedirs("exports", exist_ok=True)
+        
+        # Collect data
+        export_data = {
+            "timestamp": timestamp,
+            "agents": {}
+        }
+        
+        for name, agent in self.agents.items():
+            export_data["agents"][name] = agent.messages
+            
+        # Write to file
+        with open(filename, "w") as f:
+            json.dump(export_data, f, indent=2)
+            
+        return filename
+    
+    def get_gallery_images(self):
+        """
+        Scans current directory and toolout folders for generated plots.
+        """
+        # Search for standard plot formats in likely locations
+        image_paths = []
+        
+        # 1. Check Root (where lacathode_roc.png is saved)
+        image_paths.extend(glob.glob("*.png"))
+        image_paths.extend(glob.glob("*.jpg"))
+        
+        # 2. Check Tool Output directories recursively
+        image_paths.extend(glob.glob("toolout/**/*.png", recursive=True))
+        image_paths.extend(glob.glob("toolout/**/*.jpg", recursive=True))
+        
+        # Sort by modification time (newest first)
+        image_paths.sort(key=os.path.getmtime, reverse=True)
+        return image_paths
+    
     def chat_function(self, user_input, chat_history):
         message_id = uuid.uuid4().hex
-        parsed_generator = self.analytics_agent.respond(user_input, message_id)
+        parsed_generator = self.active_agent.respond(user_input, message_id)
 
         for multiple_parsed in parsed_generator:
-            full_history = self.analytics_agent.messages_to_gradio_history()
-            
+            full_history = self.active_agent.messages_to_gradio_history()
             # Transient bubbles
             current_bubbles = []
             for parsed in multiple_parsed:
+                self.logger.debug(parsed)
                 role = parsed.get("role", "assistant")
                 if parsed["thinking"]:
                     current_bubbles.append(gr.ChatMessage(role=role, content=parsed["thinking"], metadata={"title": "Thinking"}))
 
-                if parsed["tool_calls"]:
+                if parsed.get("tool_calls"):
                     for tool_call in parsed["tool_calls"]:
+                        tool_call_name = "unknown_tool"
+
+                        # Handle both object and dict formats just in case
+                        if hasattr(tool_call, 'function'):
+                            tool_call_name = tool_call.function.name
+                        elif isinstance(tool_call, dict) and 'function' in tool_call:
+                            tool_call_name = tool_call['function'].get('name', "unknown_tool")
+
                         current_bubbles.append(
                             gr.ChatMessage(
                                 role=role, 
-                                content=f"Invoking {tool_call['name']}...", 
+                                content=f"Invoking {tool_call_name}...", 
                                 metadata={"title": "Tool Call"})
                             )
                         
-                if parsed["content"]:
+                if parsed.get("content"):
                     current_bubbles.append(gr.ChatMessage(role=role, content=parsed["content"]))
             
             if current_bubbles:
-                yield full_history + current_bubbles
+                # Full history might already have the last message, so avoid duplication
+                if (full_history and 
+                    full_history[-1].content == current_bubbles[-1].content):
+                    yield full_history
+                else:
+                    yield full_history + current_bubbles
 
-    def get_latest_history(self):
-        return self.analytics_agent.messages_to_gradio_history()
-    
-    def run_interactive(self):
-        initial_gradio_history = self.get_latest_history()
+    def get_agent_history(self, agent_name):
+        agent = self.agents.get(agent_name)
+        if agent:
+            return agent.messages_to_gradio_history()
+        return []
+
+    def run_interactive(self, port=7860):
         with gr.Blocks(fill_height=True) as demo:
-            chatbot = gr.Chatbot(value=initial_gradio_history, type="messages", scale=1)
-            msg = gr.Textbox(label="Your Input", placeholder="Type here...", autofocus=True)
-            
-            # Timer for background updates (Resume logic)
-            if self.forced_resume_in_progress:
-                interactive_polling_timer = gr.Timer(value=0.5, active=True)
-                interactive_polling_timer.tick(fn=self.check_background_updates, inputs=None, outputs=[chatbot, msg, interactive_polling_timer])
+            with gr.Tabs():
+                    with gr.Tab("Command Center", scale=1):
+                        with gr.Row(scale=1):
+                            with gr.Column(scale=1):
+                                gr.Markdown("### 🧠 Orchestrator (Scientist)")
+                                chatbot_active = gr.Chatbot(
+                                    value=self.get_agent_history(self.active_agent.__class__.__name__), 
+                                    type="messages", 
+                                    label="Orchestrator",
+                                    scale=1
+                                )
+                            
+                            with gr.Column(scale=1):
+                                gr.Markdown("### 🛠️ Analytics (Technician)")
+                                chatbot_side = gr.Chatbot(
+                                    value=self.get_agent_history("AnalyticsAgent"), 
+                                    type="messages",
+                                    label="Analytics",
+                                    scale=1
+                                )
 
-            def submit_wrapper(user_input):
-                last_history = [] 
-                gen = self.chat_function(user_input, [])
-                for history in gen:
-                    last_history = history
-                    yield gr.update(value="", interactive=False), history
-                yield gr.update(interactive=True), last_history
+                        with gr.Row(scale=0):
+                            #chatbot = gr.Chatbot(value=initial_gradio_history, type="messages", scale=1)
+                            with gr.Column(scale=4):
+                                msg = gr.Textbox(label="Your Input", placeholder="Type here...", autofocus=True)
+                            
+                            with gr.Column(scale=1):
+                                submit_btn = gr.Button("Submit", variant="primary")
 
-            msg.submit(fn=submit_wrapper, inputs=[msg], outputs=[msg, chatbot])
+                                export_btn = gr.DownloadButton("💾 Download Full Session History")
+                                
+                                # Hook up the export button
+                                export_btn.click(
+                                    fn=self.export_all_histories,
+                                    inputs=None,
+                                    outputs=export_btn
+                                )
 
-        demo.launch(share=False)
+                            def submit_wrapper(user_input):
+                                gen = self.chat_function(user_input, [])
+                                final_history = None
+                                for history in gen:
+                                    final_history = history
+                                    yield (
+                                        gr.update(value="", interactive=False), 
+                                        history
+                                    )
+
+                                yield (
+                                    gr.update(value="", interactive=True), 
+                                    final_history
+                                )
+
+                            msg.submit(
+                                fn=submit_wrapper, 
+                                inputs=[msg], 
+                                outputs=[msg, chatbot_active]
+                            )
+
+                            submit_btn.click(
+                                fn=submit_wrapper, 
+                                inputs=[msg], 
+                                outputs=[msg, chatbot_active]
+                            )
+
+                            # Timer for background updates (Resume logic)
+                            if self.forced_resume_in_progress:
+                                active_agent_polling_timer = gr.Timer(value=0.5, active=True)
+                                active_agent_polling_timer.tick(fn=self.check_background_updates, inputs=None, outputs=[chatbot_active, msg, active_agent_polling_timer])
+
+                            side_agent_polling_timer = gr.Timer(value=1.0, active=True)
+                            side_agent_polling_timer.tick(
+                                fn=lambda: self.get_agent_history("AnalyticsAgent"),
+                                inputs=None,
+                                outputs=chatbot_side
+                            )
+
+                    with gr.Tab("Visualizations", scale=1):
+                        gr.Markdown("### Generated Plots & Figures")
+                        refresh_btn = gr.Button("🔄 Refresh Gallery")
+                        gallery = gr.Gallery(
+                            label="Generated Images", 
+                            show_label=False, 
+                            elem_id="gallery", 
+                            columns=[3], 
+                            rows=[2], 
+                            object_fit="contain", 
+                            height="auto"
+                        )
+                        
+                        # Load images on click
+                        refresh_btn.click(
+                            fn=self.get_gallery_images,
+                            inputs=None,
+                            outputs=gallery
+                        )
+        demo.launch(share=False, server_port=port)

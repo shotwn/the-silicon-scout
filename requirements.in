@@ -27,8 +27,9 @@ tensorboard
 # Version 6 is broken so far, use <6.0.0
 gradio ~= 5.50.0, <6.0.0
 
-# Read PDF files
+# Read PDF files for RAG
 pymupdf4llm
+einops # Required by some transformer models
 
 # For vector database (RAG)
 chromadb

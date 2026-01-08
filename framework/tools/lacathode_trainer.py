@@ -382,8 +382,12 @@ class LaCATHODETrainer:
             plt.ylabel('True Positive Rate')
             plt.title('Anomaly Detection Performance')
             plt.legend(loc='lower right')
-            plt.savefig('lacathode_roc.png')
-            self.log_toolout("Plot saved to lacathode_roc.png")
+            
+            save_path = os.path.join('toolout', 'graphs', 'lacathode_roc.png')
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+            plt.savefig(save_path)
+            self.log_toolout(f"Plot saved to {save_path}")
         
 def main():
     trainer = LaCATHODETrainer(args.data_dir, args.model_dir)

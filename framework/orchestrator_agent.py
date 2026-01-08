@@ -7,6 +7,7 @@ import sys
 import subprocess
 
 from framework.local_agent import LocalAgent
+from framework.tools.worker_tools import query_knowledge_base_tool
 
 class OrchestratorAgent(LocalAgent):
     def get_tools(self):
@@ -81,18 +82,18 @@ class OrchestratorAgent(LocalAgent):
             Returns:
                 A string listing the files in the specified folder.
             """
-            folder_path = os.path.join(os.getcwd(), folder_path)
+            full_folder_path = os.path.join(os.getcwd(), folder_path)
             try:
-                files = os.listdir(folder_path)
+                files = os.listdir(full_folder_path)
                 return f"Files in '{folder_path}': {', '.join(files)}"
             except FileNotFoundError:
                 return f"Directory '{folder_path}' not found."
         
-        def read_any_file(file_path: str, start_character: int = 0, end_character: int = 500) -> str:
+        def read_any_file(file_path: str, start_character: int = 0, end_character: int = 5000) -> str:
             """
             Tool to read the content of any file. Should end with .py extension.
             Code files for available tools are Python scripts located in the 'framework/tools' directory.
-            Maximum character range to read is 500 characters. To read beyond that, make multiple calls.
+            Maximum character range to read is 5000 characters. To read beyond that, make multiple calls.
             
             Args:
                 file_path: The path of the code file to read.
@@ -105,12 +106,13 @@ class OrchestratorAgent(LocalAgent):
             file_path = os.path.join(file_path)
             warnings = []
 
-            if not file_path.endswith(".py"):
-                return "Only Python (.py) code files are supported."
+            supported_extensions = ('.py', '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.jsonl')
+            if not file_path.endswith(supported_extensions):
+                return f"Only {supported_extensions} code files are supported."
 
-            if end_character - start_character > 500:
-                end_character = start_character + 500  # Limit to 500 characters
-                warnings.append("Reading limited to 500 characters. To read more, make multiple calls with adjusted character ranges.")
+            if end_character - start_character > 5000:
+                end_character = start_character + 5000  # Limit to 5000 characters
+                warnings.append("Reading limited to 5000 characters. To read more, make multiple calls with adjusted character ranges.")
 
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
@@ -133,16 +135,6 @@ class OrchestratorAgent(LocalAgent):
                     return f"```python\n{content}\n```"
             except FileNotFoundError:
                 return f"Code file '{file_path}' not found."
-            
-        def query_knowledge_base(search_query: str) -> str:
-            """
-            Searches the internal knowledge base (PDFs/Articles) for specific information.
-            Args:
-                search_query: The topic or question to search for. 
-                              Example: "What is the mass of the Top Quark?"
-            """
-            print(f"RAG Query: {search_query}")
-            return self.rag_engine.query(search_query)
         
         def delegate_to_analytics(instructions: str) -> str:
             """
@@ -162,7 +154,11 @@ class OrchestratorAgent(LocalAgent):
             read_any_file,
             check_if_file_exists,
         ]
-        if self.rag_engine:
-            tools = tools + [query_knowledge_base]
         
         return tools
+    
+    def get_async_tools(self):
+        if self.rag_engine_enabled:
+            return [query_knowledge_base_tool]
+        else:
+            return []

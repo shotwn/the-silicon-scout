@@ -8,21 +8,21 @@ import uuid
 import time
 import re
 import ollama 
+import gradio as gr 
 
 from framework.logger import get_logger
-from framework.rag_engine import RAGEngine
 
 class LocalAgent:
     def __init__(
             self, 
             model_name: str, 
             initial_messages: list= None,
-            rag_engine: RAGEngine = None,
+            rag_engine_enabled: bool = False
         ):
         self.initial_messages = initial_messages if initial_messages is not None else []
         self.messages = [] + self.initial_messages
         self.model_name = model_name
-        self.rag_engine = rag_engine
+        self.rag_engine_enabled = rag_engine_enabled
         self.sanitize_messages = True
 
         self.heavy_tools = [] 
@@ -144,12 +144,12 @@ class LocalAgent:
         except Exception as e:
             self.logger.warning(f"[System] Error unloading model: {e}")
     
-    def messages_to_gradio_history(self):
+    def messages_to_gradio_history(self) -> list[gr.ChatMessage]:
         """
         Reconstructs the chat history from self.messages to match the 
         exact format used in the live chat_function generator.
         """
-        import gradio as gr 
+
         
         history = []
         for msg in self.messages:
@@ -170,13 +170,13 @@ class LocalAgent:
                         content=msg["thinking"],
                         metadata={"title": "Thinking", "id": msg_id}
                     ))
-                if msg.get("tool_call"):
-                    tool_name = msg["tool_call"].get("name", "unknown_tool")
-                    history.append(gr.ChatMessage(
-                        role="assistant",
-                        content=f"Invoking tool... ({tool_name})",
-                        metadata={"title": "Tool Call", "id": msg_id}
-                    ))
+                if msg.get("tool_calls"):
+                    for tool_call in msg["tool_calls"]:
+                        history.append(gr.ChatMessage(
+                            role="assistant",
+                            content=f"Tool Call:\nFunction: {tool_call['function']['name']}\nArguments: {tool_call['function']['arguments']}",
+                            metadata={"title": "Tool Call", "id": msg_id}
+                        ))
                 if msg.get("content"):
                     history.append(gr.ChatMessage(
                         role="assistant",
@@ -204,8 +204,15 @@ class LocalAgent:
 
             if parsed.get("tool_calls"):
                 for tool_call in parsed["tool_calls"]:
-                    tool_name = tool_call.function.name
-                    tool_args = tool_call.function.arguments
+                    if not tool_call:
+                        continue
+
+                    if isinstance(tool_call, dict):
+                        tool_name = tool_call["function"]["name"]
+                        tool_args = tool_call["function"]["arguments"]
+                    else:
+                        tool_name = tool_call.function.name
+                        tool_args = tool_call.function.arguments
 
                     # CHECK FOR ASYNC TOOL
                     async_tool_names = [tool.__name__ for tool in self.async_tools]
@@ -255,9 +262,8 @@ class LocalAgent:
             for msg in self.messages:
                 clean_msg = msg.copy()
                 if clean_msg["role"] == "assistant":
-                    content = clean_msg.get("content", "")
-                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-                    clean_msg["content"] = content.strip()
+                    # Clean thinking blocks
+                    clean_msg["thinking"] = ""
                 prompt_input_messages.append(clean_msg)
         else:
             prompt_input_messages = self.messages
@@ -298,6 +304,20 @@ class LocalAgent:
             'id': message_id
         }
 
+        def serialize_response(resp):
+            return {
+                "role": resp["role"],
+                "content": resp["content"],
+                "thinking": resp["thinking"],
+                "tool_calls": [{"function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in resp["tool_calls"]],
+                "tool_name": resp["tool_name"],
+                "id": resp["id"]
+            }
+        
+        # Store response early so polling interfaces can see it
+        self.messages.append(serialize_response(response))
+        current_msg_index = len(self.messages) - 1
+
         for chunk in stream:
             # Chunk is in format
             # model='qwen3:14b' created_at='2026-01-07T13:50:05.117069Z' 
@@ -322,26 +342,19 @@ class LocalAgent:
             tool_name_chunk = message.tool_name
             response['tool_name'] = tool_name_chunk
 
-            yield response
+            # Update the stored message
+            self.messages[current_msg_index] = serialize_response(response)
+
+            yield self.messages[current_msg_index]
 
         # Serialize because ToolCall objects are not JSON serializable
-        serialized_response = {
-            "role": response["role"],
-            "content": response["content"],
-            "thinking": response["thinking"],
-            "tool_calls":  [{"function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in response["tool_calls"]],
-            "tool_name": response["tool_name"],
-            "id": response["id"]
-        }
-
-        # Store final response
-        self.messages.append(serialized_response)
+        serialized_response = self.messages[current_msg_index]
 
         # Log response
         with open(f"debug_logs/debug_response_{current_time}.txt", "w") as f:
             f.write(json.dumps(serialized_response, indent=2))
 
-        yield response
+        yield serialized_response
 
     def run_tool_call(self, tool_call_obj):
         """
