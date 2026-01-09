@@ -130,11 +130,6 @@ class RAGEngine:
         # Apply tag filtering if needed
         if exclude_tags:
             where_filter = {"tag": {"$nin": exclude_tags}}
-            results = self.collection.query(
-                query_embeddings=query_embedding,
-                n_results=n_results,
-                where=where_filter
-            )
         else:
             where_filter = None
         
