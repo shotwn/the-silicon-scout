@@ -7,7 +7,7 @@ import torch
 
 class RAGEngine:
     def __init__(self, persist_directory="./rag_db", model_name="nomic-ai/nomic-embed-text-v1.5"):
-        print("--- Initializing RAG (ChromaDB + CPU Embeddings) ---")
+        print("--- Initializing RAG (ChromaDB) ---")
         
         # Pick device to run embeddings on
         if torch.cuda.is_available():
@@ -129,7 +129,7 @@ class RAGEngine:
 
         # Apply tag filtering if needed
         if exclude_tags:
-            where_filter = {"$not": {"tag": {"$in": exclude_tags}}}
+            where_filter = {"tag": {"$nin": exclude_tags}}
             results = self.collection.query(
                 query_embeddings=query_embedding,
                 n_results=n_results,
@@ -151,7 +151,7 @@ class RAGEngine:
             print(f"Distance for doc {i}: {dist}")
             # Threshold depends on model/metric (L2 vs Cosine)
             # With normalized embeddings, L2 distance ranges from 0 (identical) to ~1.414 (opposite)
-            if dist < 1.1: 
+            if dist < 0.8: 
                 valid_docs.append(results['documents'][0][i])
         
         if not valid_docs:
