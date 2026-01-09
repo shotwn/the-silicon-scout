@@ -3,13 +3,16 @@ import pandas as pd
 import os
 from scipy.stats import pearsonr
 from argparse import ArgumentParser
+import time
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 parser = ArgumentParser()
 parser.add_argument("--data_file", type=str, required=True,
                     help="Path to the input data file (numpy .npy format)")
 parser.add_argument("--scores_file", type=str, required=True,
                     help="Path to the anomaly scores file (numpy .npy format)")
-parser.add_argument("--output_file", type=str, default="llm_enhanced_report.txt",
+parser.add_argument("--output_file", type=str, required=False,
                     help="Path to save the generated report")
 parser.add_argument("--print_report", action="store_true",
                     default=False,
@@ -21,11 +24,124 @@ parser.add_argument("--bin_count", type=int, default=18,
 parser.add_argument("--min_events_per_bin", type=int, default=200,
                     help="Minimum events required in a bin to calculate excess factor (filters noise).")
 
+def plot_anomaly_results(
+    scores_file="./toolout/lacathode_trained_models/inference_scores.npy",
+    data_file="./toolout/lacathode_input_data/innerdata_inference.npy",
+    save_path="./toolout/graphs/final_bump_hunt_corrected.png",
+    top_percentile=99.0,
+    bin_count=40
+):
+    print(f"--- Generating Corrected Bump Hunt Plot ---")
+
+    # 1. Load Data
+    try:
+        scores = np.load(scores_file)
+        data = np.load(data_file)
+        mass = data[:, 0]  # Mass is Column 0
+    except Exception as e:
+        print(f"Error loading files: {e}")
+        return
+
+    # --- AUTO-CORRECTION: TEV to GEV ---
+    # If the mass is small (e.g., 3.5 instead of 3500), multiply by 1000
+    if np.mean(mass) < 100:
+        print("Detected Mass in TeV. Converting to GeV for plotting...")
+        mass = mass * 1000.0
+    
+    print(f"Data Range: {mass.min():.1f} to {mass.max():.1f} GeV")
+
+    # 2. Select Top 1% Anomalies
+    threshold = np.percentile(scores, 99) 
+    mask = scores.flatten() > threshold
+    selected_mass = mass[mask]
+
+    # 3. Define Bins DYNAMICALLY based on the data
+    # We use the actual range of the data to ensure the graph isn't empty
+    x_min = np.percentile(mass, 1)  # 1st percentile (ignore outliers)
+    x_max = np.percentile(mass, top_percentile) # 99th percentile
+    x_min = min(mass) #disable auto trimmings
+    x_max = max(mass)
+    bins = np.linspace(x_min, x_max, bin_count) # 40 bins across the valid range
+
+    # 4. Setup Plot
+    fig = plt.figure(figsize=(10, 8))
+    gs = gridspec.GridSpec(2, 1, height_ratios=[3, 1], hspace=0.05)
+
+    ax0 = plt.subplot(gs[0]) # Top: Histograms
+    ax1 = plt.subplot(gs[1], sharex=ax0) # Bottom: Ratio
+
+    # --- TOP PANEL ---
+    # Background (Gray)
+    counts_bg, _, _ = ax0.hist(
+        mass, bins=bins, density=True, 
+        color='gray', alpha=0.3, label='All Data (Background)',
+        histtype='stepfilled', edgecolor='gray'
+    )
+
+    # Signal (Red)
+    counts_sig, _, _ = ax0.hist(
+        selected_mass, bins=bins, density=True, 
+        color='red', lw=2, label=f'Top {100 - top_percentile:.1f}% Anomalies',
+        histtype='step'
+    )
+
+    ax0.set_ylabel("Normalized Density", fontsize=12)
+    ax0.set_title(f"LaCATHODE Bump Hunt (Top {100 - top_percentile:.1f}% Cut)", fontsize=14, fontweight='bold')
+    ax0.legend(fontsize=11)
+    ax0.grid(True, which='both', linestyle='--', alpha=0.5)
+    
+    # Stats Box
+    ax0.text(0.02, 0.95, f"Events: {len(mass)}\nSignal Candidates: {len(selected_mass)}", 
+             transform=ax0.transAxes, verticalalignment='top', 
+             bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+
+    # --- BOTTOM PANEL: RATIO ---
+    # Calculate Ratio safely
+    with np.errstate(divide='ignore', invalid='ignore'):
+        ratio = counts_sig / counts_bg
+        ratio = np.nan_to_num(ratio, nan=0.0, posinf=0.0, neginf=0.0)
+
+    bin_centers = 0.5 * (bins[:-1] + bins[1:])
+    
+    ax1.plot(bin_centers, ratio, color='black', marker='o', linestyle='', markersize=4)
+    ax1.axhline(1.0, color='red', linestyle='--', alpha=0.7)
+    
+    ax1.set_ylabel("Ratio (Sig/Bkg)", fontsize=10)
+    ax1.set_xlabel("Invariant Mass (GeV)", fontsize=12)
+    ax1.grid(True, which='both', linestyle='--', alpha=0.5)
+    ax1.set_ylim(0, max(2.0, np.max(ratio) * 1.1)) # Auto-scale y-axis
+
+    # Hide x-ticks on top plot
+    plt.setp(ax0.get_xticklabels(), visible=False)
+
+    # 5. Save
+    if not os.path.exists(os.path.dirname(save_path)):
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    print(f"Plot saved to {save_path}")
+
+    # 6. Dataframe Output (Optional)
+    try:
+        import pandas as pd
+        df = pd.DataFrame({
+            'Mass_GeV': mass,
+            'Anomaly_Score': scores.flatten(),
+            'Is_Anomaly': mask.astype(int)
+        })
+        df_output_path = save_path.replace('.png', '_data.csv')
+        df.to_csv(df_output_path, index=False)
+        print(f"Data saved to {df_output_path}")
+    except ImportError:
+        print("Pandas not installed; skipping data CSV output.")
+
 def generate_report(**args):
     data_file = args['data_file']
     scores_file = args['scores_file']
     
-    output_file = args.get("output_file", "llm_enhanced_report.txt")
+    short_timestamp = time.strftime("%Y%m%d_%H%M")
+    default_output_path = f"toolout/reports/lacathode_report_{short_timestamp}.txt"
+    output_file = args.get("output_file", default_output_path)
     print_report = args.get("print_report", False)
 
     if not output_file and not print_report:
@@ -163,6 +279,8 @@ def generate_report(**args):
         print("</tool_result>")
 
     if output_file:    
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
         with open(output_file, "w") as f:
             f.write("\n".join(report))
         
@@ -172,6 +290,14 @@ def generate_report(**args):
         print("</tool_result>")
     
     print(f"Enhanced Report saved to {output_file} relative to current working directory.")
+
+    plot_anomaly_results(
+        scores_file=scores_file,
+        data_file=data_file,
+        save_path=output_file.replace('.txt', '_bump_hunt.png'),
+        top_percentile=top_percentile,
+        bin_count=bin_count
+    )
 
 if __name__ == "__main__":
     args = parser.parse_args()

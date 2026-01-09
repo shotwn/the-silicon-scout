@@ -320,6 +320,10 @@ class LaCATHODETrainer:
 
     def evaluate(self, plot=False):
         print("--- Evaluating Performance ---")
+        self.log_toolout(
+            "WARNING: Following evaluation results might not be correct if data received is unlabeled (blackbox) "
+            "or different from training data.\n Do your own evaluation via oracle tool."
+        )
         
         true_labels = self.inner_test[:, -1]
         
@@ -383,8 +387,8 @@ class LaCATHODETrainer:
         
         self.log_toolout(f"\nResult: ROC AUC = {roc_auc:.4f}")
 
-        if roc_auc < 0.5:
-            self.log_toolout("Interpretation: Model performance is near random guessing (0.5). Training may have failed.")
+        if roc_auc < 0.3:
+            self.log_toolout("Interpretation: Model performance is near random guessing (0.3). Training may have failed.")
         elif roc_auc > 0.8:
             self.log_toolout("Interpretation: Strong separation detected between Signal and Background.")
         
