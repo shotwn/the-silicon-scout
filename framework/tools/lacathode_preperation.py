@@ -128,6 +128,9 @@ class LaCATHODEPreperation:
         - Event-level features:
             - n_particles, m_jj, dR
         """
+
+        skipped_events = 0
+
         try:
             # First count the number of events
             with open(input_file, 'r') as f:
@@ -145,7 +148,7 @@ class LaCATHODEPreperation:
                     jets = event.get('jets', [])
 
                     if len(jets) != 2:
-                        print(f"Skipping event {event_index} in {input_file} due to unexpected number of jets: {len(jets)}")
+                        skipped_events += 1
                         continue
 
                     # We will sort it so light jet is first
@@ -225,6 +228,9 @@ class LaCATHODEPreperation:
         except Exception as e:
             print(f"Error loading data from {input_file}: {e}")
             return None
+
+        if skipped_events > 0:
+            print(f"Skipped {skipped_events} events due to missing or invalid jet data.")
 
         return numpy_array[:event_index] # Return only populated rows
     

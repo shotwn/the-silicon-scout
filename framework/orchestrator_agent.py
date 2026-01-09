@@ -5,7 +5,7 @@ Orchestrator Agent that extends LocalAgent with specialized tools for data proce
 import os
 
 from framework.local_agent import LocalAgent
-from framework.tools.worker_tools import query_knowledge_base_tool, query_gemma_cloud_tool
+from framework.tools.worker_tools import query_knowledge_base_tool, query_gemma_cloud_tool, python_repl_tool
 
 class OrchestratorAgent(LocalAgent):
     def get_tools(self):
@@ -158,7 +158,8 @@ class OrchestratorAgent(LocalAgent):
     
     def get_async_tools(self):
         async_tools = [
-            query_gemma_cloud_tool
+            query_gemma_cloud_tool,
+            python_repl_tool
         ]
 
         if self.rag_engine_enabled:

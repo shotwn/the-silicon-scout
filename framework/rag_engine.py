@@ -46,7 +46,7 @@ class RAGEngine:
             
         return chunks
 
-    def ingest_files(self, articles_dir="knowledge_base"):
+    def ingest_files(self, articles_dir="knowledge_base", tag="knowledge"):
         import pymupdf4llm 
         
         if not os.path.exists(articles_dir):
@@ -59,6 +59,11 @@ class RAGEngine:
             # Check if file is already in DB to save time
             file_path = os.path.join(articles_dir, filename)
             current_mtime = os.path.getmtime(file_path)
+
+            # Check if it is a folder
+            if os.path.isdir(file_path):
+                print(f"Skipping directory {filename}.")
+                continue
 
             existing = self.collection.get(where={"source": filename})
             
@@ -99,7 +104,7 @@ class RAGEngine:
                 # Store in Chroma
                 # Documents should be the ORIGINAL (clean) text: chunks
                 ids = [str(uuid.uuid4()) for _ in chunks]
-                metadatas = [{"source": filename, "mtime": os.path.getmtime(file_path)} for _ in chunks]
+                metadatas = [{"source": filename, "mtime": os.path.getmtime(file_path), "tag": tag} for _ in chunks]
                 
                 self.collection.add(
                     documents=chunks,     
@@ -112,7 +117,7 @@ class RAGEngine:
             except Exception as e:
                 print(f"Failed to index {filename}: {e}")
 
-    def query(self, query_text, n_results=3):
+    def query(self, query_text, n_results=3, exclude_tags=[]):
         # Embed the user query on the selected device
         search_query = f"search_query: {query_text}"
         
@@ -121,11 +126,23 @@ class RAGEngine:
             convert_to_numpy=True, 
             normalize_embeddings=True
         ).tolist()
+
+        # Apply tag filtering if needed
+        if exclude_tags:
+            where_filter = {"$not": {"tag": {"$in": exclude_tags}}}
+            results = self.collection.query(
+                query_embeddings=query_embedding,
+                n_results=n_results,
+                where=where_filter
+            )
+        else:
+            where_filter = None
         
         # Search Chroma
         results = self.collection.query(
             query_embeddings=query_embedding,
-            n_results=n_results
+            n_results=n_results,
+            where=where_filter
         )
 
         # Filter weak matches
@@ -158,6 +175,9 @@ if __name__ == "__main__":
     if args.ingest:
         rag_engine.ingest_files()  # Ingest documents from 'articles' directory
 
+        if os.path.exists("knowledge_base/gemma"):
+            rag_engine.ingest_files(articles_dir="knowledge_base/gemma", tag="gemma")
+
     if args.query:
-        response = rag_engine.query(args.query)
+        response = rag_engine.query(args.query, exclude_tags=["gemma"])
         print(f"<tool_result>\n{response}\n</tool_result>")

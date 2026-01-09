@@ -8,7 +8,8 @@ import subprocess
 
 from framework.local_agent import LocalAgent
 from framework.tools.worker_tools import fastjet_tool, lacathode_preparation_tool, \
-    lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool
+    lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool, \
+    propose_signal_regions_tool, python_repl_tool
 
 class AnalyticsAgent(LocalAgent):
     def get_async_tools(self):
@@ -19,6 +20,8 @@ class AnalyticsAgent(LocalAgent):
             lacathode_training_tool,
             lacathode_oracle_tool,
             lacathode_report_generator_tool,
+            propose_signal_regions_tool,
+            python_repl_tool,
         ]
 
     def get_tools(self):
@@ -50,5 +53,14 @@ class AnalyticsAgent(LocalAgent):
             self.talk_to_peer(peer_name="OrchestratorAgent", message=reports)
 
             return "Report sent to Orchestrator Agent. No further response needed."
+        
+        def get_timestamp() -> str:
+            """
+            Tool to get the current timestamp.
+            Returns:
+                A string representing the current timestamp.
+            """
+            from datetime import datetime
+            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        return [list_folders]
+        return [list_folders, get_timestamp]

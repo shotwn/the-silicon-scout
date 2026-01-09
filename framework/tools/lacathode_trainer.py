@@ -66,11 +66,15 @@ parser.add_argument("--epochs_clf", type=int, default=50,
                     help="Number of epochs for Classifier training")
 parser.add_argument("--plot", action="store_true",
                     help="Generate ROC curve plot after training")
+parser.add_argument("--batch_size", type=int, default=256,
+                    help="Batch size for training models, adjust based on available memory, 256 is low but safe")
+parser.add_argument("--verbose", action="store_true", default=True,
+                    help="Enable verbose logging during training")
 
 args = parser.parse_args()
 
 class LaCATHODETrainer:
-    def __init__(self, data_dir, model_dir):
+    def __init__(self, data_dir, model_dir, batch_size=256):
         self.data_dir = data_dir
         self.model_dir = model_dir
         if not os.path.exists(self.model_dir):
@@ -100,6 +104,19 @@ class LaCATHODETrainer:
         self.processor = LaCATHODEProcessor()
 
         self.toolout_response = []
+
+        # Determine Device
+        ## Either Metal or CUDA if available
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+        elif torch.cuda.is_available():
+            self.device = torch.device("cuda")
+        else:
+            self.device = torch.device("cpu")
+
+        # Batch Size
+        # Adjust based on available memory
+        self.batch_size = batch_size
     
     def log_toolout(self, message):
         self.toolout_response.append(message)
@@ -136,7 +153,7 @@ class LaCATHODETrainer:
     def prepare_flow_inputs(self):
         print("--- Preprocessing Flow Inputs ---")
         
-        # 1. Extract Raw Features
+        # Extract Raw Features
         x_train_raw = self.outer_train[:, 1:-1]
         x_val_raw   = self.outer_val[:, 1:-1]
 
@@ -144,18 +161,18 @@ class LaCATHODETrainer:
         m_train_raw = self.outer_train[:, 0:1]
         m_val_raw   = self.outer_val[:, 0:1]
 
-        # 2. Fit the Processor both x and m
+        # Fit the Processor both x and m
         self.processor.fit_scaler(x_train_raw, m_train_raw)
 
-        # 3. Transform Data (Force float32 for PyTorch)
+        # Transform Data (Force float32 for PyTorch)
         self.x_outer_train = self.processor.transform(x_train_raw).astype(np.float32)
         self.x_outer_val   = self.processor.transform(x_val_raw).astype(np.float32)
 
-        # 4. Transform Condition (Scale Mass) <--- NEW FIX
+        # Transform Condition (Scale Mass) <--- NEW FIX
         self.m_outer_train = self.processor.transform_condition(m_train_raw).astype(np.float32)
         self.m_outer_val   = self.processor.transform_condition(m_val_raw).astype(np.float32)
         
-        # 5. Sanitize
+        # Sanitize
         self.x_outer_train, self.m_outer_train = self.processor.sanitize(self.x_outer_train, self.m_outer_train)
         self.x_outer_val, self.m_outer_val     = self.processor.sanitize(self.x_outer_val, self.m_outer_val)
 
@@ -166,7 +183,7 @@ class LaCATHODETrainer:
 
         self.log_toolout("Flow inputs prepared successfully.")
 
-    def train_flow(self, load=False, epochs=100):
+    def train_flow(self, load=False, epochs=100, verbose=False):
         """
         STEP 1: The Generative Model
         Trains a Conditional Normalizing Flow on the Sideband.
@@ -184,14 +201,14 @@ class LaCATHODETrainer:
             save_path=self.model_dir,
             num_inputs=num_inputs,
             early_stopping=True,
-            epochs=None if not load else 0, # Skip training loop if loading
-            verbose=True,
-            # Standard is 1e-3; 1e-4 is much safer for stability.
-            # learning_rate=1e-4
-            # --- FIX STARTS HERE ---
+            epochs=epochs if not load else 0, # Skip training loop if loading
+            verbose=verbose,
+            device=self.device,
+            # FIX FOR UNSTABLE TRAINING ESPECIALLY ON BLACKBOXES - Anıl
             batch_norm=False,    # <--- CRITICAL: Disable the unstable legacy batch norm
             lr=1e-5,             # <--- FORCE 1e-5. 1e-4 is still too fast for un-normalized data.
-            # --- FIX ENDS HERE ---
+            # FIX ENDS HERE 
+            batch_size=self.batch_size
         )
         
         if load:
@@ -272,7 +289,7 @@ class LaCATHODETrainer:
         self.X_clf_val = self.latent_scaler.transform(val_set[:, :-1])
         self.y_clf_val = val_set[:, -1]
 
-    def train_classifier(self, load=False, epochs=50):
+    def train_classifier(self, load=False, epochs=50, verbose=False):
         """
         STEP 4: Anomaly Detection
         Train a Neural Network to distinguish Real Latent Data from Gaussian Noise.
@@ -284,8 +301,10 @@ class LaCATHODETrainer:
             save_path=os.path.join(self.model_dir, "classifier"),
             n_inputs=self.X_clf_train.shape[1],
             early_stopping=True,
-            epochs=None if not load else 0,
-            verbose=True
+            epochs=epochs if not load else 0,
+            verbose=verbose,
+            device=self.device,
+            batch_size=self.batch_size
         )
         
         if load:
@@ -390,14 +409,14 @@ class LaCATHODETrainer:
             self.log_toolout(f"Plot saved to {save_path}")
         
 def main():
-    trainer = LaCATHODETrainer(args.data_dir, args.model_dir)
+    trainer = LaCATHODETrainer(args.data_dir, args.model_dir, batch_size=args.batch_size)
     try:
         # Load Data
         trainer.load_data()
         
         # Prepare & Train Flow (Background Model)
         trainer.prepare_flow_inputs()
-        trainer.train_flow(load=args.load_flow, epochs=args.epochs_flow)
+        trainer.train_flow(load=args.load_flow, epochs=args.epochs_flow, verbose=args.verbose)
         
         # Transform Data to Latent Space
         trainer.transform_to_latent()
@@ -406,7 +425,7 @@ def main():
         trainer.prepare_classifier_data()
         
         # Train Classifier (Anomaly Detector)
-        trainer.train_classifier(load=args.load_classifier, epochs=args.epochs_clf)
+        trainer.train_classifier(load=args.load_classifier, epochs=args.epochs_clf, verbose=args.verbose)
         
         # Evaluate
         trainer.evaluate(plot=args.plot)

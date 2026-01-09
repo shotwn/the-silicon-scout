@@ -29,7 +29,7 @@ def fastjet_tool(
         numpy_read_chunk_size: Chunk size for reading numpy files.
         size_per_row: Size per row for processing. Default is 2100 for R&D data. Clarify based on data.
         output_dir: Directory to save output files. Default is 'toolout/fastjet-output/'.
-        min_pt: Minimum pt in GeV threshold for clustering. Default is 1200.0.
+        min_pt: Minimum pt in GeV threshold for clustering. Default is 1200.0. Do not set too low. Do not mix with mass.
         no_label_input: Whether the input file has labels. R&D data may have labels. Real data does not.
     Returns:
         A string summarizing the preprocessing results.
@@ -66,7 +66,61 @@ def fastjet_tool(
     
     # Process the output
     return result.stdout
-        
+
+def propose_signal_regions_tool(
+    input_background: str | None = None,
+    input_signal: str | None = None,
+    input_unlabeled: str | None = None,
+    sigma_width: float = 4.0,
+    resolution_ratio: float = 0.03,
+    min_jet_pt: float = 1200.0,
+    min_events_saturation: int = 40000
+):
+    """
+    Analyzes input data files to recommend optimal mass windows for LaCATHODE.
+    Prioritizes High Mass regions with sufficient statistics.
+
+    Args:
+        input_background: Path to background data file (JSONL or NPY). Used in Training Mode.
+        input_signal: Path to signal data file (JSONL or NPY). Used in Training Mode.
+        input_unlabeled: Path to unlabeled data file (JSONL or NPY). Used in Inference Mode.
+        sigma_width: Width of the Signal Region (SR) in sigmas (default 4.0).
+        resolution_ratio: Estimated detector mass resolution (default 0.03).
+        min_jet_pt: The hardware trigger threshold used (default 1200.0 GeV). 
+                    Used to determine safe mass scanning floor.
+        min_events_saturation: The event count where model performance plateaus (default 40000).
+                               Lower this if using a very small dataset to avoid favoring only low-mass regions.
+    """
+    
+    if not (input_background or input_signal or input_unlabeled):
+        raise ValueError("Error: At least one input file is required.")
+
+    command = [
+        f"{sys.executable}",
+        "framework/tools/region_proposer.py",
+        "--sigma_width", str(sigma_width),
+        "--resolution_ratio", str(resolution_ratio),
+        "--min_jet_pt", str(min_jet_pt),
+        "--min_events_saturation", str(min_events_saturation) # <--- PASS IT
+    ]
+
+    if input_background:
+        command += ["--input_background", input_background]
+    if input_signal:
+        command += ["--input_signal", input_signal]
+    if input_unlabeled:
+        command += ["--input_unlabeled", input_unlabeled]
+
+    print(f"Worker: Executing command: {' '.join(command)}")
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    return result.stdout
     
 def lacathode_preparation_tool(
     run_id: str,
@@ -78,10 +132,10 @@ def lacathode_preparation_tool(
     shuffle_seed: int | None = None,
     training_fraction: float | None = None,
     validation_fraction: float | None = None,
-    side_band_min: float | None = None,
-    min_mass: float | None = None,
-    max_mass: float | None = None,
-    side_band_max: float | None = None,
+    scan_start_mass: float | None = None,
+    min_mass_signal_region: float | None = None,
+    max_mass_signal_region: float | None = None,
+    scan_end_mass: float | None = None,
     tho_21_threshold: float | None = None,
 ):
     """
@@ -97,8 +151,7 @@ def lacathode_preparation_tool(
     As a clarification, R&D data usually has both background and signal files, so use 'training' mode.
     Real life or blackbox data usually has only unlabeled file, so use 'inference' mode.
 
-    Always make sure side_band_min < min_mass < max_mass < side_band_max.
-
+    Always make sure scan_start_mass < min_mass_signal_region < max_mass_signal_region < scan_end_mass.
     Make sure Signal Region request is not too wide. 
 
     Expense is 5 GPU minutes for large datasets.
@@ -111,10 +164,10 @@ def lacathode_preparation_tool(
         shuffle_seed: Random seed for shuffling. (optional)
         training_fraction: Fraction of data to use for training. (optional)
         validation_fraction: Fraction of data to use for validation.
-        side_band_min: Minimum mass for Sideband (SB) region in TeV. (optional)
-        min_mass: Minimum mass for Signal Region (SR) window in TeV.
-        max_mass: Maximum mass for Signal Region (SR) window in TeV.
-        side_band_max: Maximum mass for Sideband (SB) region in TeV. (optional)
+        scan_start_mass: Minimum mass for Sideband (SB) region in TeV. (optional)
+        min_mass_signal_region: Minimum mass for Signal Region (SR) window in TeV.
+        max_mass_signal_region: Maximum mass for Signal Region (SR) window in TeV.
+        scan_end_mass: Maximum mass for Sideband (SB) region in TeV. (optional)
         tho_21_threshold: Threshold for Tau2/1 ratio filtering (testing feature, might give wrong results). (optional)
     """
     
@@ -153,14 +206,14 @@ def lacathode_preparation_tool(
         command += ["--training_fraction", str(training_fraction)]
     if validation_fraction is not None:
         command += ["--validation_fraction", str(validation_fraction)]
-    if side_band_min is not None:
-        command += ["--side_band_min", str(side_band_min)]
-    if min_mass is not None:
-        command += ["--min_mass", str(min_mass)]
-    if max_mass is not None:
-        command += ["--max_mass", str(max_mass)]
-    if side_band_max is not None:
-        command += ["--side_band_max", str(side_band_max)]
+    if scan_start_mass is not None:
+        command += ["--side_band_min", str(scan_start_mass)]
+    if min_mass_signal_region is not None:
+        command += ["--min_mass", str(min_mass_signal_region)]
+    if max_mass_signal_region is not None:
+        command += ["--max_mass", str(max_mass_signal_region)]
+    if scan_end_mass is not None:
+        command += ["--side_band_max", str(scan_end_mass)]
     if tho_21_threshold is not None:
         command += ["--tho_21_threshold", str(tho_21_threshold)]
 
@@ -428,3 +481,44 @@ def query_gemma_cloud_tool(
     """
 
     return query_gemma_cloud(query)
+
+def python_repl_tool(
+    code: str,
+    run_as_subprocess: bool = False,
+):
+    """
+    Tool to execute Python code with restricted WRITE permissions.
+    - READ: Allowed everywhere (load data, configs, etc.)
+    - WRITE: Allowed ONLY in './toolout/repl/'.
+    - BLOCKED: os.system, shell commands.
+
+    Available libraries (already imported in the REPL environment):
+        numpy as np, pandas as pd, matplotlib.pyplot as plt, os, torch, scipy
+
+    Args:
+        code: The Python code to execute.
+        run_as_subprocess: If True, runs the code in a separate subprocess for added isolation and performance.
+                           If False, runs directly in the current process with safety wrappers.
+    """
+    from framework.tools.python_repl import python_repl_tool as repl_tool
+
+    if run_as_subprocess:
+        command = [
+            f"{sys.executable}",
+            "framework/tools/python_repl_subprocess.py",
+            "--code", code,
+        ]
+
+        print(f"Worker: Executing command: {' '.join(command)}")
+        result = subprocess.run(
+            command, 
+            capture_output=True, 
+            text=True, 
+            check=True, 
+            env=os.environ
+        )
+        
+        return result.stdout
+    else:
+        print(f"Worker: Executing Safe Python Code directly...")
+        return repl_tool(code)

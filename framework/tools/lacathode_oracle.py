@@ -169,7 +169,9 @@ class LaCATHODEOracle:
 
         # Save
         output_path = os.path.join(scores_file_path)
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        output_dir_name = os.path.dirname(output_path)
+        if output_dir_name and not os.path.exists(output_dir_name):
+            os.makedirs(output_dir_name, exist_ok=True)
 
         np.save(output_path, final_scores)
         
@@ -201,11 +203,12 @@ if __name__ == "__main__":
         error_message = f"CRITICAL ERROR during Oracle inference: {str(e)}"
         if oracle:
             oracle.add_tool_out(error_message)
+            raise e  # Signal failure to worker
         else:
             # If init failed, oracle is None, so we print manually
             print(error_message)
             print(f"<tool_result>\n{error_message}\n</tool_result>")
-            sys.exit(1) # Signal failure to worker
+            raise e# Signal failure to worker
             
     finally:
         # Safety check: Only print tags if oracle exists

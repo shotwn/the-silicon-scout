@@ -14,7 +14,7 @@ load_dotenv()
 
 # --- CONFIGURATION ---
 INITIATION_TIME = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-HISTORY_FILE = os.path.join("knowledge_base", "gemma_history_log.md")
+HISTORY_FILE = os.path.join("knowledge_base/gemma", "gemma_history_log.md")
 RUNTIME_HISTORY_FILE = os.path.join("toolout", "gemma_responses", INITIATION_TIME, f"gemma_runtime_history_log.md")
 
 RATE_LIMIT_DELAY = 5.0  # Minimum seconds between API calls
