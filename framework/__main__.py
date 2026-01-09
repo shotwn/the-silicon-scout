@@ -8,6 +8,8 @@ if __name__ == "__main__":
     parser.add_argument("--framework-only", action="store_true", dest="framework_only", help="Starts ONLY the main bot. Regular run also starts the bot.", default=False)
     parser.add_argument("--worker-only", action="store_true", dest="worker_only", help="Starts only the worker", default=False)
     parser.add_argument("--model", type=str, default="qwen3:14b", help="Ollama model name")
+    parser.add_argument("--cache-tools", type=str, nargs='*', default=[], help="List of tool names to cache results for (for debugging). Use '*' to cache all tools.")
+
     args = parser.parse_args()
 
     if args.framework_only:
@@ -22,4 +24,4 @@ if __name__ == "__main__":
         if not worker_only:
             start_up_bot(args.resume)
 
-        run_worker()
+        run_worker(cache_tools=args.cache_tools)

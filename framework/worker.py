@@ -32,15 +32,13 @@ os.makedirs(COMPLETED_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 os.makedirs(PENDING_DIR, exist_ok=True)
 
-# Toggle this to True/False as needed, or control via env var
-DEBUG_CACHE_MODE = True
-
 # Track current bot process for wake-up management
 CURRENT_BOT_PROCESS = None
 
 def shutdown_bot():
     """
     Checks if a bot instance is currently running and shuts it down.
+    DISABLED for now due switching to external ollama server.
     """
     global CURRENT_BOT_PROCESS
     
@@ -147,7 +145,19 @@ def find_cached_result(tool_name, tool_args):
             
     return None
 
-def run_worker():
+def run_worker(cache_tools=[]):
+    """
+    Main worker loop that monitors the pending jobs directory,
+    executes tools, and saves results.
+
+    Caching can be enabled for specific tools by providing their names
+    in the cache_tools list.
+
+    Caching checks for previous identical runs (same tool name and args)
+    in the completed jobs directory and reuses results if found.
+    
+    :param cache_tools: List of tool names for which caching is enabled. Use ['*'] or ['all'] to enable for all tools.
+    """
     logger.info("Worker started. Monitoring jobs/pending/ ...")
     while True:
         try:
@@ -172,7 +182,7 @@ def run_worker():
                 result = None
                 
                 # --- DEBUG CACHE MODE START ---
-                if DEBUG_CACHE_MODE:
+                if tool_name in cache_tools or '*' in cache_tools or 'all' in cache_tools:
                     cached_result = find_cached_result(tool_name, tool_args)
                     if cached_result is not None:
                         result = cached_result
