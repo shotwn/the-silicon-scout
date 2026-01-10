@@ -77,10 +77,10 @@ class Framework:
                         "   - If Significance looks unconvincing: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run. You can also ask gemma for opinions about which energy ranges to explore.\n"
                         "   - If Significance is high near band edges: Suggest refining the mass range or scan on new window.\n"
                         "6. WHEN ARE YOU DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'. \n"
-                        "   Final report should summarize findings, significance, and next steps.\n"
-                        "   It should give an results overview of how many signal events might be present in the data and type of these events.\n"
-                        "   As well as reasons for confidence in the results.\n"
-                        "   Results will be used to measure this framework's performance in a paper.\n\n"
+                        "## What you should report: \n"
+                        "1. A p-value associated with the dataset having no new particles (null hypothesis). \n"
+                        "2. As complete a description of the new physics as possible. For example: the masses and decay modes of all new particles (and uncertainties on those parameters). \n"
+                        "3. How many signal events (+uncertainty) are in the dataset (before any selection criteria). \n\n"
                         "   This is session ID: " + self.session_id + "\n"
                     )
                 }

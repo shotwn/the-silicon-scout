@@ -21,7 +21,7 @@ class AnalyticsAgent(LocalAgent):
             lacathode_oracle_tool,
             lacathode_report_generator_tool,
             propose_signal_regions_tool,
-            python_repl_tool,
+            #python_repl_tool,
             isolation_forest_tool
         ]
 

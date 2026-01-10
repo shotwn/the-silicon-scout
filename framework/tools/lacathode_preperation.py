@@ -4,6 +4,8 @@ import json
 import os
 import lacathode_event_dictionary
 
+from framework.logger import get_logger
+
 """
 Argument parser for running the script from command line
 """
@@ -106,16 +108,40 @@ class LaCATHODEPreperation:
 
         self.min_mass = args.get('min_mass', 3.3)
         self.max_mass = args.get('max_mass', 3.8)
-        self.side_band_min = args.get('side_band_min', 2.5)
+        self.side_band_min = args.get('side_band_min', 2.0)
         self.side_band_max = args.get('side_band_max', 4.0)
+
+        if self.min_mass > 10.0 or \
+            self.max_mass > 10.0 or \
+            self.side_band_min > 10.0 or \
+            self.side_band_max > 10.0:
+            raise ValueError("Mass values should be in TeV, not GeV. Please provide values less than 10.0")
 
         if self.side_band_min >= self.min_mass or self.side_band_max <= self.max_mass:
             print(f"{self.side_band_min} {self.min_mass} {self.max_mass} {self.side_band_max}")
             raise ValueError("Sideband extremes must be outside the Signal Region window.")
         
+        if self.max_mass - self.min_mass < 0.1:
+            raise ValueError("Signal Region window too small. Please provide a larger window.")
+        
+        if self.max_mass - self.min_mass > 1.0:
+            raise ValueError("Signal Region window too large. Please provide a smaller window.")
+        
+        if self.side_band_max - self.side_band_min < 2.0:
+            raise ValueError("Sideband region too small. Please provide a larger sideband region.")
+
+        
         self.tho_21_threshold = args.get('tho_21_threshold', None)  # Example threshold for Tau2/1 ratio filtering
 
         self.feature_dictionary = lacathode_event_dictionary.tags
+
+        self.logger = get_logger("LaCATHODEPreperation", level="INFO")
+        self.toolout_texts = []
+
+    def add_toolout_text(self, text):
+        self.toolout_texts.append(text)
+        self.logger.info(text)
+
 
     def load_to_numpy(self, input_file, label_type='background', normalize=True):
         """
@@ -226,12 +252,11 @@ class LaCATHODEPreperation:
                     event_index += 1
 
         except Exception as e:
-            print(f"Error loading data from {input_file}: {e}")
+            self.add_toolout_text(f"Error loading data from {input_file}: {e}")
             return None
 
         if skipped_events > 0:
-            print(f"Skipped {skipped_events} events due to missing or invalid jet data.")
-
+            self.add_toolout_text(f"Skipped {skipped_events} events due to missing or invalid jet data.")
         return numpy_array[:event_index] # Return only populated rows
     
     def shuffle(self, data_array):
@@ -317,7 +342,7 @@ class LaCATHODEPreperation:
         MODE 1: Proving the Model (Training/Validation/Testing)
         Uses labeled Background and Signal files.
         """
-        print("Running in TRAINING mode (Proving the model)...")
+        self.add_toolout_text("Running in TRAINING mode...")
         if not self.input_background or not self.input_signal:
             raise ValueError("input_background and input_signal required for training mode.")
 
@@ -328,12 +353,16 @@ class LaCATHODEPreperation:
         # Combine and Shuffle
         combined = np.vstack((bg, sig))
 
+        # Warn if events less than 1000
+        if combined.shape[0] < 10000:
+            self.add_toolout_text("WARNING: Total number of events less than 10000. Recheck signal region window and scan range.")
+
         # Filter non-finite events before splitting
         initial_count = len(combined)
         combined = combined[np.all(np.isfinite(combined), axis=1)]
         dropped = initial_count - len(combined)
         if dropped > 0:
-            print(f"Dropped {dropped} non-finite events from raw data.")
+            self.add_toolout_text(f"Dropped {dropped} non-finite events from raw data.")
 
         # Cut sideband extremes
         combined = self.cut_sideband_extremes(combined)
@@ -378,13 +407,11 @@ class LaCATHODEPreperation:
         
 
 
-        print("<tool_result>")
-        print(f"Saved training files: train/val/test splits of innerdata_*.npy and outerdata_*.npy")
-        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_train.npy')}")
-        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_train.npy')}")
-        print(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_val.npy')} and {os.path.join(self.output_dir, 'innerdata_val.npy')}")
-        print(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_test.npy')} and {os.path.join(self.output_dir, 'innerdata_test.npy')}")
-        print("</tool_result>")
+        self.add_toolout_text(f"Saved training files: train/val/test splits of innerdata_*.npy and outerdata_*.npy")
+        self.add_toolout_text(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_train.npy')}")
+        self.add_toolout_text(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_train.npy')}")
+        self.add_toolout_text(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_val.npy')} and {os.path.join(self.output_dir, 'innerdata_val.npy')}")
+        self.add_toolout_text(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_test.npy')} and {os.path.join(self.output_dir, 'innerdata_test.npy')}")
 
     def inference_mode(self):
         """
@@ -392,7 +419,7 @@ class LaCATHODEPreperation:
         Uses one Unlabeled Data file (Real Data).
         Splits it into Train/Val/Test so the Trainer works out-of-the-box.
         """
-        print("Running in INFERENCE mode (Using on real data)...")
+        self.add_toolout_text("Running in INFERENCE mode...")
         if not self.input_unlabeled:
             raise ValueError("input_unlabeled required for inference mode.")
 
@@ -404,7 +431,7 @@ class LaCATHODEPreperation:
         data = data[np.all(np.isfinite(data), axis=1)]
         dropped = initial_count - len(data)
         if dropped > 0:
-            print(f"Dropped {dropped} non-finite events from raw data.")
+            self.add_toolout_text(f"Dropped {dropped} non-finite events from raw data.")
 
         # Cut sideband extremes
         data = self.cut_sideband_extremes(data)
@@ -452,13 +479,11 @@ class LaCATHODEPreperation:
         combined_outer = np.vstack((tr_out, val_out))
         self.save_numpy(combined_outer, os.path.join(self.output_dir, 'outerdata_combined.npy'))
         
-        print("<tool_result>")
-        print(f"Saved inference files.")
-        print(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_train.npy')}")
-        print(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_train.npy')}")
-        print(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_val.npy')} and {os.path.join(self.output_dir, 'innerdata_val.npy')}")
-        print(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_test.npy')} and {os.path.join(self.output_dir, 'innerdata_test.npy')}")
-        print("</tool_result>")
+        self.add_toolout_text(f"Saved inference files.")
+        self.add_toolout_text(f"1. Train Flow on: {os.path.join(self.output_dir, 'outerdata_train.npy')}")
+        self.add_toolout_text(f"2. Detect anomalies in: {os.path.join(self.output_dir, 'innerdata_train.npy')}")
+        self.add_toolout_text(f"3. Validate on: {os.path.join(self.output_dir, 'outerdata_val.npy')} and {os.path.join(self.output_dir, 'innerdata_val.npy')}")
+        self.add_toolout_text(f"4. Test on: {os.path.join(self.output_dir, 'outerdata_test.npy')} and {os.path.join(self.output_dir, 'innerdata_test.npy')}")
 
     def run(self):
         if self.run_mode == 'training':
@@ -474,4 +499,13 @@ if __name__ == "__main__":
     preperation = LaCATHODEPreperation(
         **vars(args)
     )
-    preperation.run()
+    try:
+        preperation.run()
+    except Exception as e:
+        preperation.add_toolout_text(f"Error during LaCATHODE Preperation: {e}")
+        raise e # Signal the worker that an error occurred
+    finally:
+        # Print toolout texts
+        print("<tool_result>")
+        print("\n".join(preperation.toolout_texts))
+        print("</tool_result>")

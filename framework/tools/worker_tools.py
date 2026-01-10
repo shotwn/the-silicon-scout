@@ -163,10 +163,10 @@ def lacathode_preparation_tool(
     shuffle_seed: int | None = None,
     training_fraction: float | None = None,
     validation_fraction: float | None = None,
-    scan_start_mass: float | None = None,
-    min_mass_signal_region: float | None = None,
-    max_mass_signal_region: float | None = None,
-    scan_end_mass: float | None = None,
+    scan_start_mass: float | None = 2.0,
+    min_mass_signal_region: float | None = 3.3,
+    max_mass_signal_region: float | None = 3.8,
+    scan_end_mass: float | None = 4.0,
     tho_21_threshold: float | None = None,
 ):
     """
@@ -535,11 +535,11 @@ def python_repl_tool(
     Do not attempt to do analysis here. This is only for small data manipulations,
     quick plots, calculations, etc.
 
+    WARNING: Do NOT use this tool to divide datasets or train models. Use dedicated tools for that.
+
     Args:
         code: The Python code to execute.
     """
-    from framework.tools.python_repl import python_repl_tool as repl_tool
-
     command = [
         f"{sys.executable}",
         "framework/tools/python_repl.py",
@@ -600,7 +600,7 @@ def isolation_forest_tool(
 
     command = [
         f"{sys.executable}",
-        "framework/tools/isolation_forest_tool.py",
+        "framework/tools/isolation_forest.py",
         "--n_estimators", str(n_estimators),
         "--contamination", str(contamination)
     ]
