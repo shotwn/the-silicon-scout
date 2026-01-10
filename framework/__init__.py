@@ -67,7 +67,11 @@ class Framework:
                         "   - If Significance looks convincing and other data seems feasible: Recommend publication.\n"
                         "   - If Significance looks unconvincing: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
                         "   - If Significance is high near band edges: Suggest refining the mass range.\n"
-                        "6. WHEN ARE YOU DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'."
+                        "6. WHEN ARE YOU DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'. \n"
+                        "   Final report should summarize findings, significance, and next steps.\n"
+                        "   It should give an results overview of how many signal events might be present in the data and type of these events.\n"
+                        "   As well as reasons for confidence in the results.\n"
+                        "   Results will be used to measure this framework's performance in a paper.\n\n"
                     )
                 }
             ],
@@ -86,6 +90,7 @@ class Framework:
                         "4. TOOL USAGE: One tool at a time, wait for completion before next.\n"
                         "5. PIPELINES:" 
                         "5.1. FastJet -> Signal Region Proposal -> Preparation -> Training -> Oracle -> Report Generator.\n"
+                        "5.2. You can run Isolation Forest as an independent check after FastJet and if needed Signal Region Proposal.\n"
                         "6. WHEN TO REPORT: If ONLY a specific step is asked, report IMMEDIATELY after that step completes."
                         "If full pipeline is run, report AFTER the Report Generator step completes.\n"
                         "7. PARTIAL RE-RUNS: You can re-run steps to increase report data, but take cost into account.\n"
@@ -95,6 +100,8 @@ class Framework:
                         "2. FILE SAFETY: Check file existence before reading. Do not overwrite unless instructed.\n"
                         "3. RUN IDs: If not received by orchestrator, generate unique run_ids for every new training attempt.\n"
                         "4. AUTONOMY: If the Orchestrator says 'Find anomalies' without specifics, you MAY run the full pipeline autonomously.\n\n"
+                        "5. EASY WITH PYTHON: You have access to a Python REPL tool. Use it for calculations, file inspections, or data manipulations. \n"
+                        "   But make sure to not create workloads that will take hours to run, rely on existing tools first. Keep it efficient and quick.\n\n"
                         "## EXAMPLE-RERUNS:\n"
                         "- If the Orchestrator suggests lowering min_pt, you can re-run Preparation and subsequent steps.\n"
                         "- If the Orchestrator wants a finer mass binning, you can re-run Report Generator with updated parameters.\n"
@@ -147,11 +154,14 @@ class Framework:
             self.forced_resume_in_progress = True
         else:
             self.forced_resume_in_progress = False
+
+        self._last_served_histories = {}
+
+        self.chat_lock = threading.Lock()
     
 
     def get_initial_messages(self, agent):
         return self.default_initial_messages.get(agent, [])
-
 
     def trigger_forced_resume(self, job_id):
         """Loads state from a completed job file to resume."""
@@ -201,20 +211,21 @@ class Framework:
 
     def check_background_updates(self):
         """Polled by Gradio Timer."""
-        full_history = self.get_agent_history(self.active_agent.__class__.__name__)
+        active_agent_name = self.active_agent.__class__.__name__
+        full_history = self.get_agent_history(active_agent_name)
+        last_served_history = self._last_served_histories.get(active_agent_name, [])
+
+        # Skip if no changes
+        if last_served_history == full_history:
+            return (gr.skip(), gr.skip()) # Critical for no flashing
         
-        if self.forced_resume_in_progress:
-            return (
-                full_history, 
-                gr.update(interactive=False, placeholder="Resuming with previous job's results..."),
-                gr.update(active=True) # Keep the timer running
-            )
-        else:
-            return (
-                full_history, 
-                gr.update(interactive=True, placeholder="Type here..."), 
-                gr.update(active=False) # Stop the timer
-            )
+        self._last_served_histories[active_agent_name] = full_history
+        
+        # Adjust textbox state if forced resume is ongoing
+        placeholder_text = "Resuming..." if self.forced_resume_in_progress else "Type here..."
+        interactive_state = not self.forced_resume_in_progress
+        
+        return (full_history, gr.update(interactive=interactive_state, placeholder=placeholder_text))
 
     def export_all_histories(self):
         """
@@ -293,47 +304,32 @@ class Framework:
         image_paths.sort(key=os.path.getmtime, reverse=True)
         return image_paths
     
+    def _background_worker(self, user_input, message_id):
+        """Runs the agent loop in a separate thread."""
+        try:
+            with self.chat_lock:
+                # Iterate to drive execution; agent saves state internally
+                gen = self.active_agent.respond(user_input, message_id)
+                for _ in gen: pass
+        except Exception as e:
+            self.logger.error(f"Background worker crashed: {e}")
+    
     def chat_function(self, user_input, chat_history):
+        """Starts the background task and returns immediately."""
+        if not user_input.strip():
+             return gr.update(value=""), None
+
+        # Fire and Forget Thread
         message_id = uuid.uuid4().hex
-        parsed_generator = self.active_agent.respond(user_input, message_id)
+        t = threading.Thread(
+            target=self._background_worker, 
+            args=(user_input, message_id), 
+            daemon=True
+        )
+        t.start()
 
-        for multiple_parsed in parsed_generator:
-            full_history = self.active_agent.messages_to_gradio_history()
-            # Transient bubbles
-            current_bubbles = []
-            for parsed in multiple_parsed:
-                self.logger.debug(parsed)
-                role = parsed.get("role", "assistant")
-                if parsed["thinking"]:
-                    current_bubbles.append(gr.ChatMessage(role=role, content=parsed["thinking"], metadata={"title": "Thinking"}))
-
-                if parsed.get("tool_calls"):
-                    for tool_call in parsed["tool_calls"]:
-                        tool_call_name = "unknown_tool"
-
-                        # Handle both object and dict formats just in case
-                        if hasattr(tool_call, 'function'):
-                            tool_call_name = tool_call.function.name
-                        elif isinstance(tool_call, dict) and 'function' in tool_call:
-                            tool_call_name = tool_call['function'].get('name', "unknown_tool")
-
-                        current_bubbles.append(
-                            gr.ChatMessage(
-                                role=role, 
-                                content=f"Invoking {tool_call_name}...", 
-                                metadata={"title": "Tool Call"})
-                            )
-                        
-                if parsed.get("content"):
-                    current_bubbles.append(gr.ChatMessage(role=role, content=parsed["content"]))
-            
-            if current_bubbles:
-                # Full history might already have the last message, so avoid duplication
-                if (full_history and 
-                    full_history[-1].content == current_bubbles[-1].content):
-                    yield full_history
-                else:
-                    yield full_history + current_bubbles
+        # Return immediately (clears box, does NOT update chatbot directly)
+        return gr.update(value="", interactive=True), None
 
     def get_agent_history(self, agent_name):
         agent = self.agents.get(agent_name)
@@ -381,37 +377,26 @@ class Framework:
                                     outputs=export_btn
                                 )
 
-                            def submit_wrapper(user_input):
-                                gen = self.chat_function(user_input, [])
-                                final_history = None
-                                for history in gen:
-                                    final_history = history
-                                    yield (
-                                        gr.update(value="", interactive=False), 
-                                        history
-                                    )
-
-                                yield (
-                                    gr.update(value="", interactive=True), 
-                                    final_history
-                                )
-
                             msg.submit(
-                                fn=submit_wrapper, 
-                                inputs=[msg], 
-                                outputs=[msg, chatbot_active]
+                                fn=self.chat_function, 
+                                inputs=[msg, chatbot_active], 
+                                outputs=[msg, chatbot_active] 
                             )
-
                             submit_btn.click(
-                                fn=submit_wrapper, 
-                                inputs=[msg], 
+                                fn=self.chat_function, 
+                                inputs=[msg, chatbot_active], 
                                 outputs=[msg, chatbot_active]
                             )
 
                             # Timer for background updates (Resume logic)
-                            if self.forced_resume_in_progress:
-                                active_agent_polling_timer = gr.Timer(value=0.5, active=True)
-                                active_agent_polling_timer.tick(fn=self.check_background_updates, inputs=None, outputs=[chatbot_active, msg, active_agent_polling_timer])
+                            # We can be quite aggressively polling since if there are no changes,
+                            # check_background_updates will skip updating the component (no flicker)
+                            active_agent_polling_timer = gr.Timer(value=0.3, active=True)
+                            active_agent_polling_timer.tick(
+                                fn=self.check_background_updates, 
+                                inputs=None, # <--- CRITICAL
+                                outputs=[chatbot_active, msg]
+                            )
 
                             side_agent_polling_timer = gr.Timer(value=1.0, active=True)
                             side_agent_polling_timer.tick(
@@ -486,4 +471,16 @@ class Framework:
                             inputs=None,
                             outputs=tools_log_display
                         )
+            # Pull histories to ensure up-to-date on start
+            demo.load(
+                fn=lambda: self.get_agent_history(self.active_agent.__class__.__name__),
+                inputs=None,
+                outputs=chatbot_active
+            )
+            demo.load(
+                fn=lambda: self.get_agent_history("AnalyticsAgent"),
+                inputs=None,
+                outputs=chatbot_side
+            )
+
         demo.launch(share=False, server_port=port)
