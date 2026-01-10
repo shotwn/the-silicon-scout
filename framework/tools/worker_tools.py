@@ -3,6 +3,9 @@ import subprocess
 import os
 
 from framework.tools.gemma_client import query_gemma_cloud
+from framework.logger import get_logger
+
+logger = get_logger(__name__)
 
 def fastjet_tool(
     input_file: str,
@@ -29,7 +32,8 @@ def fastjet_tool(
         numpy_read_chunk_size: Chunk size for reading numpy files.
         size_per_row: Size per row for processing. Default is 2100 for R&D data. Clarify based on data.
         output_dir: Directory to save output files. Default is 'toolout/fastjet-output/'.
-        min_pt: Minimum pt in GeV threshold for clustering. Default is 1200.0. Do not set too low. Do not mix with mass.
+        min_pt: Minimum pt in GeV threshold for clustering. Default is 30.0. This is not trigger threshold pt, but jet reconstruction pt.
+                Depends on smallest jet you want to reconstruct. You can keep it low (30 GeV) for best reconstruction.
         no_label_input: Whether the input file has labels. R&D data may have labels. Real data does not.
     Returns:
         A string summarizing the preprocessing results.
@@ -54,7 +58,7 @@ def fastjet_tool(
     if no_label_input:
         command += ["--no_label_input"]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
         command, 
@@ -75,7 +79,8 @@ def propose_signal_regions_tool(
     scan_start: float = 2000.0,
     scan_stop: float = 6000.0,
     window_width: float = 400.0,
-    step_size: float = 200.0
+    step_size: float = 200.0,
+    trigger_threshold_pt: float = 1200.0,
 ):
     """
     Performs a Sliding Window Scan (CATHODE-style) to identify optimal search regions.
@@ -98,6 +103,11 @@ def propose_signal_regions_tool(
         scan_stop: The END of the global analysis range in GeV (default: 6000).
         window_width: The width of the Signal Region (hole) in GeV (default: 400).
         step_size: The shift step for the scan in GeV (default: 200).
+        trigger_threshold_pt: The hardware trigger threshold (default 1200.0 GeV). 
+                              This is a property of how the data was COLLECTED, not how it was analyzed.
+                              Do NOT lower this value even if you used a low min_pt in FastJet.
+                              The tool uses this to calculate the 'Safe Mass Floor' (approx 2x trigger)
+                              where the dataset becomes statistically reliable.
     """
     
     if not (input_background or input_signal or input_unlabeled):
@@ -109,7 +119,8 @@ def propose_signal_regions_tool(
         "--global_start", str(scan_start),
         "--global_stop", str(scan_stop),
         "--window_width", str(window_width),
-        "--step_size", str(step_size)
+        "--step_size", str(step_size),
+        "--trigger_threshold_pt", str(trigger_threshold_pt),
     ]
 
     if input_background:
@@ -119,7 +130,7 @@ def propose_signal_regions_tool(
     if input_unlabeled:
         command += ["--input_unlabeled", input_unlabeled]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
         command, 
         capture_output=True, 
@@ -228,7 +239,7 @@ def lacathode_preparation_tool(
         command += ["--tho_21_threshold", str(tho_21_threshold)]
 
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
         command, 
@@ -303,7 +314,7 @@ def lacathode_training_tool(
     if plot:
         command += ["--plot"]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
         command, 
@@ -371,7 +382,7 @@ def lacathode_oracle_tool(
     # Pass the FULL PATH now that the script accepts it directly
     command += ["--output_file", output_file]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
         command, 
         capture_output=True, 
@@ -433,7 +444,7 @@ def lacathode_report_generator_tool(
         command += ["--min_events_per_bin", str(min_events_per_bin)]
 
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
         command, 
@@ -464,7 +475,7 @@ def query_knowledge_base_tool(
         "--query", search_query,
     ]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
 
     result = subprocess.run(
         command, 
@@ -515,7 +526,7 @@ def python_repl_tool(
         "--code", code,
     ]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
         command, 
         capture_output=True, 
@@ -587,7 +598,7 @@ def isolation_forest_tool(
     if plot:
         command += ["--plot"]
 
-    print(f"Worker: Executing command: {' '.join(command)}")
+    logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
         command, 
         capture_output=True, 

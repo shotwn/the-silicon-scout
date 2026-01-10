@@ -4,6 +4,10 @@ import json
 import os
 import sys
 
+from framework.logger import get_logger
+
+logger = get_logger(__name__)
+
 def load_masses_from_file(file_path):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -32,7 +36,8 @@ def propose_regions(
     global_start=2000.0,
     global_stop=6000.0,
     window_width=400.0,
-    step_size=200.0
+    step_size=200.0,
+    trigger_threshold_pt=1200.0
 ):
     """
     Implements a Sliding Window Scan for CATHODE/LaCATHODE anomaly detection.
@@ -74,7 +79,17 @@ def propose_regions(
 
         # Scanning Routine
         candidates = []
-        current_sr_start = global_start
+
+        # The invariant mass turn-on is roughly 2x the jet pT trigger threshold.
+        safe_mass_floor = 2.0 * trigger_threshold_pt
+        
+        if global_start < safe_mass_floor:
+            # Using the new variable name in the debug print
+            logger.info(f"Adjusting scan start from {global_start} GeV to {safe_mass_floor} GeV "
+                f"(Safe Floor for Trigger pT > {trigger_threshold_pt} GeV)")
+            current_sr_start = safe_mass_floor
+        else:
+            current_sr_start = global_start
 
         while current_sr_start + window_width <= global_stop:
             sr_end = current_sr_start + window_width
@@ -149,6 +164,7 @@ if __name__ == "__main__":
     parser.add_argument("--global_stop", type=float, default=6000.0)
     parser.add_argument("--window_width", type=float, default=400.0)
     parser.add_argument("--step_size", type=float, default=200.0)
+    parser.add_argument("--trigger_threshold_pt", type=float, default=1200.0)
 
     args = parser.parse_args()
 
@@ -159,7 +175,8 @@ if __name__ == "__main__":
         global_start=args.global_start,
         global_stop=args.global_stop,
         window_width=args.window_width,
-        step_size=args.step_size
+        step_size=args.step_size,
+        trigger_threshold_pt=args.trigger_threshold_pt
     )
 
     print("<tool_result>")
