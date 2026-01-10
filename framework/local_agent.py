@@ -262,12 +262,12 @@ class LocalAgent:
         if self.sanitize_messages:
             # Leave last thinking block if present
             reversed_messages = list(reversed(self.messages))
-            first_thinking_spared = False
+            spare_thinking_count = 3 # Keep last 3 thinking blocks
             for msg in reversed_messages:
                 clean_msg = msg.copy()
                 if clean_msg["role"] == "assistant" and clean_msg.get("thinking", "").strip() != "":
-                    if not first_thinking_spared:
-                        first_thinking_spared = True
+                    if spare_thinking_count > 0:
+                        spare_thinking_count -= 1
                     else:
                         # Clean thinking blocks
                         clean_msg["thinking"] = ""
