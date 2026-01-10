@@ -260,12 +260,20 @@ class LocalAgent:
         # We perform the same sanitization (removing old <think> blocks)
         prompt_input_messages = []
         if self.sanitize_messages:
-            for msg in self.messages:
+            # Leave last thinking block if present
+            reversed_messages = list(reversed(self.messages))
+            first_thinking_spared = False
+            for msg in reversed_messages:
                 clean_msg = msg.copy()
-                if clean_msg["role"] == "assistant":
-                    # Clean thinking blocks
-                    clean_msg["thinking"] = ""
+                if clean_msg["role"] == "assistant" and clean_msg.get("thinking", "").strip() != "":
+                    if not first_thinking_spared:
+                        first_thinking_spared = True
+                    else:
+                        # Clean thinking blocks
+                        clean_msg["thinking"] = ""
                 prompt_input_messages.append(clean_msg)
+            
+            prompt_input_messages = list(reversed(prompt_input_messages))
         else:
             prompt_input_messages = self.messages
 

@@ -72,7 +72,7 @@ class Framework:
                         "   It have multiple tools and pipelines, so make sure you understand them well to use them effectively.\n\n"
                         "5. DECIDE: \n"
                         "   - If Significance looks convincing and other data seems feasible: Recommend publication.\n"
-                        "   - If Significance looks unconvincing: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run.\n"
+                        "   - If Significance looks unconvincing: Formulate a new hypothesis (e.g., 'The signal might be softer, let's lower min_pt') and command the Analyst to re-run. You can also ask gemma for opinions about which energy ranges to explore.\n"
                         "   - If Significance is high near band edges: Suggest refining the mass range or scan on new window.\n"
                         "6. WHEN ARE YOU DONE: Only when you have a strong discovery or have exhausted options, start your response with 'FINAL REPORT'. \n"
                         "   Final report should summarize findings, significance, and next steps.\n"
