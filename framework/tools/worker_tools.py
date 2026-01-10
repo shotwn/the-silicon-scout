@@ -71,25 +71,33 @@ def propose_signal_regions_tool(
     input_background: str | None = None,
     input_signal: str | None = None,
     input_unlabeled: str | None = None,
-    sigma_width: float = 4.0,
-    resolution_ratio: float = 0.03,
-    min_jet_pt: float = 1200.0,
-    min_events_saturation: int = 40000
+    # Updated CATHODE-style Scan Parameters
+    scan_start: float = 2000.0,
+    scan_stop: float = 6000.0,
+    window_width: float = 400.0,
+    step_size: float = 200.0
 ):
     """
-    Analyzes input data files to recommend optimal mass windows for LaCATHODE.
-    Prioritizes High Mass regions with sufficient statistics.
+    Performs a Sliding Window Scan (CATHODE-style) to identify optimal search regions.
+    
+    This tool scans the mass spectrum using a fixed-width Signal Region (SR) hole.
+    It scores candidates based on the "Bottleneck" statistic (min events in Left SB, SR, or Right SB)
+    to find the most robust regions for training.
+
+    You don't need to modify the default parameters unless you have a specific reason.
+
+    You must provide either input_unlabeled (for real data) or both input_background and input_signal (for R&D data).
+
+    Expense is minimal, typically a few CPU seconds.
 
     Args:
-        input_background: Path to background data file (JSONL or NPY). Used in Training Mode.
-        input_signal: Path to signal data file (JSONL or NPY). Used in Training Mode.
-        input_unlabeled: Path to unlabeled data file (JSONL or NPY). Used in Inference Mode.
-        sigma_width: Width of the Signal Region (SR) in sigmas (default 4.0).
-        resolution_ratio: Estimated detector mass resolution (default 0.03).
-        min_jet_pt: The hardware trigger threshold used (default 1200.0 GeV). 
-                    Used to determine safe mass scanning floor.
-        min_events_saturation: The event count where model performance plateaus (default 40000).
-                               Lower this if using a very small dataset to avoid favoring only low-mass regions.
+        input_background: Path to background data file (JSONL or NPY).
+        input_signal: Path to signal data file (JSONL or NPY).
+        input_unlabeled: Path to unlabeled data file (JSONL or NPY).
+        scan_start: The START of the global analysis range in GeV (default: 2000).
+        scan_stop: The END of the global analysis range in GeV (default: 6000).
+        window_width: The width of the Signal Region (hole) in GeV (default: 400).
+        step_size: The shift step for the scan in GeV (default: 200).
     """
     
     if not (input_background or input_signal or input_unlabeled):
@@ -98,10 +106,10 @@ def propose_signal_regions_tool(
     command = [
         f"{sys.executable}",
         "framework/tools/region_proposer.py",
-        "--sigma_width", str(sigma_width),
-        "--resolution_ratio", str(resolution_ratio),
-        "--min_jet_pt", str(min_jet_pt),
-        "--min_events_saturation", str(min_events_saturation) # <--- PASS IT
+        "--global_start", str(scan_start),
+        "--global_stop", str(scan_stop),
+        "--window_width", str(window_width),
+        "--step_size", str(step_size)
     ]
 
     if input_background:
@@ -121,7 +129,7 @@ def propose_signal_regions_tool(
     )
     
     return result.stdout
-    
+  
 def lacathode_preparation_tool(
     run_id: str,
     run_mode: str = 'training',
@@ -153,6 +161,8 @@ def lacathode_preparation_tool(
 
     Always make sure scan_start_mass < min_mass_signal_region < max_mass_signal_region < scan_end_mass.
     Make sure Signal Region request is not too wide. 
+
+    Scan mass should be almost the full spectrum, just avoiding extreme tails.
 
     Expense is 5 GPU minutes for large datasets.
     Args:
