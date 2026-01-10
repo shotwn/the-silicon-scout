@@ -298,8 +298,7 @@ class LocalAgent:
             options={
                 "temperature": 0.6,
                 "top_p": 0.9,
-                "num_ctx": 8192, # Adjust based on your VRAM
-                "stop": ["<|im_end|>", "<|im_start|>", "</s>"] # Stop tokens
+                "num_ctx": 16384, # Adjust based on your VRAM
             },
             keep_alive=300 # Keep model loaded for 5 minutes this is the default
         )
