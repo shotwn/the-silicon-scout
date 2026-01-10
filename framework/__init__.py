@@ -402,7 +402,8 @@ class Framework:
                                     value=self.get_agent_history(self.active_agent.__class__.__name__), 
                                     type="messages", 
                                     label="Orchestrator",
-                                    scale=1
+                                    scale=1,
+                                    autoscroll=False
                                 )
                             
                             with gr.Column(scale=1):
@@ -411,7 +412,8 @@ class Framework:
                                     value=self.get_agent_history("AnalyticsAgent"), 
                                     type="messages",
                                     label="Analytics",
-                                    scale=1
+                                    scale=1,
+                                    autoscroll=False
                                 )
 
                         with gr.Row(scale=0):
