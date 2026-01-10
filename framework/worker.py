@@ -8,7 +8,7 @@ import argparse
 from framework.tools.worker_tools import fastjet_tool, lacathode_preparation_tool, \
     lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool, \
     query_knowledge_base_tool, query_gemma_cloud_tool, propose_signal_regions_tool, \
-    python_repl_tool
+    python_repl_tool, isolation_forest_tool
 from framework.logger import get_logger
 
 logger = get_logger("Worker")

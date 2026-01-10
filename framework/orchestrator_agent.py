@@ -159,7 +159,7 @@ class OrchestratorAgent(LocalAgent):
     def get_async_tools(self):
         async_tools = [
             query_gemma_cloud_tool,
-            python_repl_tool
+            #python_repl_tool
         ]
 
         if self.rag_engine_enabled:

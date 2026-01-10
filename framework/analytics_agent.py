@@ -9,7 +9,7 @@ import subprocess
 from framework.local_agent import LocalAgent
 from framework.tools.worker_tools import fastjet_tool, lacathode_preparation_tool, \
     lacathode_training_tool, lacathode_oracle_tool, lacathode_report_generator_tool, \
-    propose_signal_regions_tool, python_repl_tool
+    propose_signal_regions_tool, python_repl_tool, isolation_forest_tool
 
 class AnalyticsAgent(LocalAgent):
     def get_async_tools(self):
@@ -22,6 +22,7 @@ class AnalyticsAgent(LocalAgent):
             lacathode_report_generator_tool,
             propose_signal_regions_tool,
             python_repl_tool,
+            isolation_forest_tool
         ]
 
     def get_tools(self):

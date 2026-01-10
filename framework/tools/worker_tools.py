@@ -484,7 +484,6 @@ def query_gemma_cloud_tool(
 
 def python_repl_tool(
     code: str,
-    run_as_subprocess: bool = False,
 ):
     """
     Tool to execute Python code with restricted WRITE permissions.
@@ -497,28 +496,94 @@ def python_repl_tool(
 
     Args:
         code: The Python code to execute.
-        run_as_subprocess: If True, runs the code in a separate subprocess for added isolation and performance.
-                           If False, runs directly in the current process with safety wrappers.
     """
     from framework.tools.python_repl import python_repl_tool as repl_tool
 
-    if run_as_subprocess:
-        command = [
-            f"{sys.executable}",
-            "framework/tools/python_repl_subprocess.py",
-            "--code", code,
-        ]
+    command = [
+        f"{sys.executable}",
+        "framework/tools/python_repl.py",
+        "--code", code,
+    ]
 
-        print(f"Worker: Executing command: {' '.join(command)}")
-        result = subprocess.run(
-            command, 
-            capture_output=True, 
-            text=True, 
-            check=True, 
-            env=os.environ
-        )
-        
-        return result.stdout
-    else:
-        print(f"Worker: Executing Safe Python Code directly...")
-        return repl_tool(code)
+    print(f"Worker: Executing command: {' '.join(command)}")
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ,
+        timeout=3600 # 1 hour timeout
+    )
+
+    # Handle timeout or other exceptions outside
+    
+    return result.stdout
+
+def isolation_forest_tool(
+    input_background: str | None = None,
+    input_signal: str | None = None,
+    input_unlabeled: str | None = None,
+    region_start: float | None = None,
+    region_end: float | None = None,
+    contamination: str = "auto",
+    n_estimators: int = 100,
+    plot: bool = True
+):
+    """
+    Tool to run a standalone Isolation Forest benchmark analysis.
+    
+    LIMITATIONS & USAGE GUIDE:
+    1. Inferior Sensitivity: This is a standard 'shallow' ML baseline. It is generally LESS sensitive than LaCATHODE.
+    2. False Positives (The 'Tail' Problem'): Without a specific region focus, it tends to flag the highest-energy events 
+       (the kinematic tail) as anomalies. This is statistically true (they are rare) but physically uninteresting.
+    3. Recommended Workflow: Do NOT use this for initial scouting. Use LaCATHODE to find a candidate region first.
+       Then, run this tool FOCUSED on that region (e.g., region_start=3.3, region_end=3.7) to see if a classic 
+       algorithm also confirms the anomaly.
+    4. This tool not confirming the anomaly does NOT disprove LaCATHODE's finding. LaCATHODE is more advanced and sensitive.
+       However, if this tool DOES confirm the anomaly, it strengthens the case for further investigation.
+       
+    Args:
+        input_background: Path to background_events.jsonl (R&D Mode).
+        input_signal: Path to signal_events.jsonl (R&D Mode).
+        input_unlabeled: Path to unlabeled_events.jsonl (Real Data Mode).
+        region_start: Start of the focused mass window in TeV (e.g., 3.3). HIGHLY RECOMMENDED to avoid tail bias.
+        region_end: End of the focused mass window in TeV (e.g., 3.7).
+        contamination: Expected anomaly fraction (default "auto").
+        n_estimators: Number of trees in the forest (default 100).
+        plot: Whether to generate distribution plots (default True).
+    """
+    
+    # Validation logic matching the script's requirements
+    if not input_unlabeled and not (input_background and input_signal):
+        raise ValueError("Error: Must provide either input_unlabeled OR (input_background AND input_signal).")
+
+    command = [
+        f"{sys.executable}",
+        "framework/tools/isolation_forest_tool.py",
+        "--n_estimators", str(n_estimators),
+        "--contamination", str(contamination)
+    ]
+
+    if input_background:
+        command += ["--input_background", input_background]
+    if input_signal:
+        command += ["--input_signal", input_signal]
+    if input_unlabeled:
+        command += ["--input_unlabeled", input_unlabeled]
+    if region_start is not None:
+        command += ["--region_start", str(region_start)]
+    if region_end is not None:
+        command += ["--region_end", str(region_end)]
+    if plot:
+        command += ["--plot"]
+
+    print(f"Worker: Executing command: {' '.join(command)}")
+    result = subprocess.run(
+        command, 
+        capture_output=True, 
+        text=True, 
+        check=True, 
+        env=os.environ
+    )
+    
+    return result.stdout

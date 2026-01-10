@@ -4,10 +4,12 @@ import os
 import builtins
 import shutil
 import traceback
+import argparse
 
 # --- CONFIGURATION ---
 ALLOWED_WRITE_DIR = os.path.abspath("./toolout/repl")  # The ONLY folder allowing writes
 # ---------------------
+
 
 class SafePythonREPL:
     def __init__(self):
@@ -98,3 +100,11 @@ def python_repl_tool(code: str):
     """
     print(f"Worker: Executing Safe Python Code...")
     return repl_instance.run(code)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Safe Python REPL Tool")
+    parser.add_argument("--code", type=str, required=True, help="Python code to execute")
+    args = parser.parse_args()
+    
+    result = python_repl_tool(args.code)
+    print(result)

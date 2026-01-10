@@ -23,7 +23,7 @@ parser.add_argument('--input_unlabeled', type=str, required=False,
 # Hyperparameters
 parser.add_argument("--n_estimators", type=int, default=100, help="Number of trees")
 parser.add_argument("--contamination", type=str, default="auto", help="Expected anomaly fraction")
-parser.add_argument("--plot", action="store_true", help="Generate score distribution plot")
+parser.add_argument("--plot", action="store_true", help="Generate score distribution plot", default=True)
 
 parser.add_argument("--region_start", type=float, default=None, help="Start of signal region focus (TeV)")
 parser.add_argument("--region_end", type=float, default=None, help="End of signal region focus (TeV)")
@@ -122,10 +122,6 @@ def main():
     X = None
     y = None
     
-    # ... (Keep Data Loading Logic exactly the same) ...
-    # [PASTE YOUR EXISTING DATA LOADING CODE HERE UNTIL 'Scaling features...']
-    
-    # --- RE-PASTING DATA LOADING FOR COMPLETENESS IF YOU COPY-PASTE ALL ---
     if args.input_unlabeled:
         print("Mode: Inference (Unlabeled Data)")
         X = load_jsonl(args.input_unlabeled)
@@ -144,7 +140,7 @@ def main():
 
     if X is None or len(X) == 0: return
 
-    # --- 2. Preprocessing & Training ---
+    # --- Preprocessing & Training ---
     print("Scaling features...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -156,7 +152,7 @@ def main():
     print("Calculating anomaly scores...")
     scores = -clf.decision_function(X_scaled) # Higher = More Anomalous
 
-    # --- 3. LLM-READABLE REPORTING (Enhanced) ---
+    # --- LLM-READABLE REPORTING (Enhanced) ---
     print("\n<tool_result>")
     print(f"Algorithm: Isolation Forest (sklearn)")
     
@@ -167,22 +163,26 @@ def main():
     # --- GLOBAL ANALYSIS (The "Tail" Check) ---
     threshold = np.percentile(scores, 99)
     is_anomaly = scores > threshold
+
     anomalies = X[is_anomaly]
+    normal = X[~is_anomaly]
     
     # Global Peak Finding
     hist, bin_edges = np.histogram(anomalies[:, 0], bins=20)
     peak_mass = (bin_edges[np.argmax(hist)] + bin_edges[np.argmax(hist)+1]) / 2
     
+
     print(f"\n--- Global Anomalies (Top 1% of entire dataset) ---")
     print(f"Dominant Mass Peak: {peak_mass:.1f} GeV")
+    print("Interpretation: In unsupervised mode, global anomalies often correspond to the highest energy tail.")
     
-    # [NEW] Interpretation Guide for the LLM
+    # Interpretation Guide for the LLM
     print("\n--- Interpretation Guide ---")
     print("NOTE: Isolation Forest detects *rarity*. In collider data, the highest energy events (the tail) are naturally rare.")
     print("WARNING: If the 'Global Mass Peak' above is > 5000 GeV, it is likely just the kinematic tail, NOT a resonance.")
     print("ACTION: Use the 'FOCUSED ANALYSIS' below to check for anomalies specifically inside your target signal region.")
 
-    # --- [NEW] FOCUSED ANALYSIS (The "Signal" Check) ---
+    # --- FOCUSED ANALYSIS (The "Signal" Check) ---
     if args.region_start is not None and args.region_end is not None:
         # Convert TeV -> GeV
         r_start_gev = args.region_start * 1000
@@ -190,7 +190,7 @@ def main():
         
         print(f"\n--- FOCUSED ANALYSIS (Region: {args.region_start} - {args.region_end} TeV) ---")
         
-        # 1. Filter Data to Region (Using Column 0 = m_jj)
+        # Filter Data to Region (Using Column 0 = m_jj)
         mask_region = (X[:, 0] >= r_start_gev) & (X[:, 0] <= r_end_gev)
         
         if np.sum(mask_region) == 0:
@@ -199,34 +199,43 @@ def main():
             X_focus = X[mask_region]
             scores_focus = scores[mask_region] # Use the globally trained scores
             
-            # 2. Find anomalies LOCALLY within this slice
+            # Find anomalies LOCALLY within this slice
             # We take the top 1% *of the events in this region*
             thresh_focus = np.percentile(scores_focus, 99)
             is_anom_focus = scores_focus > thresh_focus
             
             anoms_focus = X_focus[is_anom_focus]
             normal_focus = X_focus[~is_anom_focus]
-            
-            # 3. Local Characterization
-            # Mass Peak
-            if len(anoms_focus) > 0:
+        
+            # Local Characterization
+            # We require at least 10 anomalous events to avoid characterizing random noise
+            if len(anoms_focus) >= 10:
                 hist_f, bins_f = np.histogram(anoms_focus[:, 0], bins=10)
                 peak_mass_f = (bins_f[np.argmax(hist_f)] + bins_f[np.argmax(hist_f)+1]) / 2
                 print(f"Local Mass Peak: Anomalies in this window cluster at {peak_mass_f:.1f} GeV.")
                 
-                # Substructure (Tau21 is Column 6)
+                # Substructure
                 avg_tau_anom = np.mean(anoms_focus[:, 6])
                 avg_tau_norm = np.mean(normal_focus[:, 6]) if len(normal_focus) > 0 else 0
                 
                 print(f"Local Substructure (Tau21): Anomaly={avg_tau_anom:.3f} vs Normal={avg_tau_norm:.3f}")
                 
-                # Explicit Verdict for LLM
+                # REVISED: Morphology Characterization (No False 'POSITIVE' Verdicts)
+                print("\nMorphology Characterization:")
                 if avg_tau_anom < avg_tau_norm:
-                    print("VERDICT: POSITIVE. Anomalies here have distinct boson-like substructure (lower Tau21).")
+                    print(f" - Substructure: Signal-like (Lower Tau21: {avg_tau_anom:.2f}). Anomalies appear more '2-pronged' than average.")
                 else:
-                    print("VERDICT: NEGATIVE. Anomalies here look like random background fluctuations.")
+                    print(f" - Substructure: Background-like (Higher Tau21: {avg_tau_anom:.2f}). Anomalies appear 'messy' or QCD-like.")
+
+                print("\nCAUTION:")
+                print(" - This tool finds the LOCAL statistical outliers (Top 1%).")
+                print(" - In pure background, these outliers are often just rare QCD fluctuations.")
+                print(" - CONCLUSION: This tool confirms the presence of signal-like candidates, but CANNOT prove significance on its own.")
+                print(" - ACTION: Rely on LaCATHODE's significance estimate for the final decision.")
+
             else:
-                print("Status: No anomalies found in this specific region.")
+                print(f"Status: Insufficient statistics ({len(anoms_focus)} anomalies) to characterize pattern.")
+    
     else:
         print("\n[Tip]: Provide --region_start and --region_end (in TeV) to get a focused analysis of a specific window.")
 

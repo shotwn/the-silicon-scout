@@ -278,8 +278,10 @@ def generate_report(**args):
         print("\n".join(report))
         print("</tool_result>")
 
-    if output_file:    
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    if output_file:
+        dir_name = os.path.dirname(output_file)
+        if dir_name and not os.path.exists(dir_name):    
+            os.makedirs(dir_name, exist_ok=True)
 
         with open(output_file, "w") as f:
             f.write("\n".join(report))
@@ -291,13 +293,20 @@ def generate_report(**args):
     
     print(f"Enhanced Report saved to {output_file} relative to current working directory.")
 
-    plot_anomaly_results(
-        scores_file=scores_file,
-        data_file=data_file,
-        save_path=output_file.replace('.txt', '_bump_hunt.png'),
-        top_percentile=top_percentile,
-        bin_count=bin_count
-    )
+    # Output plot to graphs/results but with corrected naming
+    ## Take output filename
+    output_without_dir = os.path.basename(output_file)
+    plot_path = output_without_dir.replace('.txt', '_bump_hunt.png')
+    plot_path = os.path.join("toolout", "graphs", plot_path)
+
+    if output_file:
+        plot_anomaly_results(
+            scores_file=scores_file,
+            data_file=data_file,
+            save_path=plot_path,
+            top_percentile=top_percentile,
+            bin_count=bin_count
+        )
 
 if __name__ == "__main__":
     args = parser.parse_args()
