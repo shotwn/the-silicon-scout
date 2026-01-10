@@ -25,19 +25,20 @@ parser.add_argument("--n_estimators", type=int, default=100, help="Number of tre
 parser.add_argument("--contamination", type=str, default="auto", help="Expected anomaly fraction")
 parser.add_argument("--plot", action="store_true", help="Generate score distribution plot")
 
+parser.add_argument("--region_start", type=float, default=None, help="Start of signal region focus (TeV)")
+parser.add_argument("--region_end", type=float, default=None, help="End of signal region focus (TeV)")
+
 args = parser.parse_args()
 
 def extract_features(event):
     """
     Extracts features from the nested FastJet JSONL format.
-    Verified against user sample: 
-    {"type": "background", "jets": [{"px": ...}], "m_jj": ..., "dR": ...}
     """
     jets = event.get("jets", [])
     
-    # Safety check: We need at least 2 jets for a dijet resonance search
+    # --- FIX: The feature vector below has 11 elements, so the fallback must be 11. ---
     if len(jets) < 2: 
-        return [0.0] * 12 
+        return [0.0] * 11  # <--- CHANGED FROM 12 TO 11
 
     j1 = jets[0]
     j2 = jets[1]
@@ -49,10 +50,10 @@ def extract_features(event):
         pz = jet_dict.get("pz", 0.0)
         m  = jet_dict.get("m", 0.0)
         
-        # Calculate pT (Transverse Momentum)
+        # Calculate pT
         pt = np.sqrt(px**2 + py**2)
         
-        # Calculate Eta (Pseudorapidity)
+        # Calculate Eta
         p = np.sqrt(px**2 + py**2 + pz**2)
         if p - pz == 0 or p + pz == 0: 
             eta = 0.0
@@ -66,7 +67,6 @@ def extract_features(event):
 
     # --- Helper: Calculate N-subjettiness Ratio (tau21) ---
     def get_tau21(jet_dict):
-        # JSON keys are "tau_1", "tau_2"
         tau1 = jet_dict.get("tau_1", 1e-9) 
         tau2 = jet_dict.get("tau_2", 0.0)
         return tau2 / tau1 if tau1 > 0 else 0.0
@@ -76,21 +76,21 @@ def extract_features(event):
 
     # --- Feature Vector Construction ---
     features = [
-        event.get("m_jj", 0.0),      # Invariant Mass
-        abs(j1_m - j2_m),            # Mass Difference
-        event.get("dR", 0.0),        # Delta R
+        float(event.get("m_jj", 0.0)),      # 1. Invariant Mass
+        float(abs(j1_m - j2_m)),            # 2. Mass Difference
+        float(event.get("dR", 0.0)),        # 3. Delta R
         
         # Jet 1
-        j1_pt,
-        j1_eta,
-        j1_m,
-        j1_tau21,
+        float(j1_pt),                       # 4
+        float(j1_eta),                      # 5
+        float(j1_m),                        # 6
+        float(j1_tau21),                    # 7
         
         # Jet 2
-        j2_pt,
-        j2_eta,
-        j2_m,
-        j2_tau21
+        float(j2_pt),                       # 8
+        float(j2_eta),                      # 9
+        float(j2_m),                        # 10
+        float(j2_tau21)                     # 11
     ]
     
     return features
@@ -122,120 +122,147 @@ def main():
     X = None
     y = None
     
-    # --- 1. Data Loading Strategy ---
+    # ... (Keep Data Loading Logic exactly the same) ...
+    # [PASTE YOUR EXISTING DATA LOADING CODE HERE UNTIL 'Scaling features...']
+    
+    # --- RE-PASTING DATA LOADING FOR COMPLETENESS IF YOU COPY-PASTE ALL ---
     if args.input_unlabeled:
-        # Inference Mode: Just one blob of data
         print("Mode: Inference (Unlabeled Data)")
         X = load_jsonl(args.input_unlabeled)
-        # No labels available
-        
     elif args.input_background and args.input_signal:
-        # R&D Mode: We construct a mixed dataset to test sensitivity
         print("Mode: R&D Benchmark (Background + Signal)")
-        
         X_bg = load_jsonl(args.input_background)
         X_sig = load_jsonl(args.input_signal)
-        
-        if X_bg is None or X_sig is None:
-            print("Failed to load R&D data.")
-            return
-
-        # Create Labels: 0 = Background, 1 = Signal
+        if X_bg is None or X_sig is None: return
         y_bg = np.zeros(len(X_bg))
         y_sig = np.ones(len(X_sig))
-        
-        # Combine them
         X = np.vstack([X_bg, X_sig])
         y = np.concatenate([y_bg, y_sig])
-        
-        print(f"Combined Data: {len(X_bg)} Background + {len(X_sig)} Signal events.")
-        
     else:
-        print("Error: You must provide either --input_unlabeled OR both --input_background and --input_signal.")
+        print("Error: Missing inputs.")
         return
 
-    if X is None or len(X) == 0:
-        print("No data loaded. Exiting.")
-        return
+    if X is None or len(X) == 0: return
 
-    # --- 2. Preprocessing ---
-    # Isolation Forest cares about distance, so Scaling is CRUCIAL.
+    # --- 2. Preprocessing & Training ---
     print("Scaling features...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # --- 3. Training ---
     print(f"Training Isolation Forest (n_estimators={args.n_estimators})...")
-    # Note: We train on EVERYTHING (Unsupervised).
-    # If the signal is rare (<10%), iForest should isolate it.
-    clf = IsolationForest(
-        n_estimators=args.n_estimators,
-        contamination=args.contamination, 
-        n_jobs=-1, 
-        random_state=42
-    )
+    clf = IsolationForest(n_estimators=args.n_estimators, contamination=args.contamination, n_jobs=-1, random_state=42)
     clf.fit(X_scaled)
 
-    # --- 4. Scoring ---
     print("Calculating anomaly scores...")
-    # decision_function: Average path length. 
-    # sklearn returns standard convention: negative = anomaly, positive = normal.
-    # We FLIP this so High Value = High Anomaly Score (easier for humans/LLM).
-    scores = -clf.decision_function(X_scaled)
+    scores = -clf.decision_function(X_scaled) # Higher = More Anomalous
 
-    # --- 5. Reporting ---
+    # --- 3. LLM-READABLE REPORTING (Enhanced) ---
     print("\n<tool_result>")
     print(f"Algorithm: Isolation Forest (sklearn)")
     
-    # If we have labels (R&D mode), calculate AUC
     if y is not None:
         auc = roc_auc_score(y, scores)
-        print(f"Performance (ROC AUC): {auc:.4f}")
-        
-        if auc > 0.55:
-            print("Status: SUCCESS. Signal events have distinct isolation patterns.")
-        elif auc < 0.45:
-             print("Status: INCONCLUSIVE. Signal is blending into background (anti-correlated).")
-        else:
-            print("Status: RANDOM. Cannot distinguish signal from background.")
-    else:
-        print("Performance: N/A (No labels provided)")
-
-    # General Statistics (Top 1% outliers)
-    threshold = np.percentile(scores, 99)
-    n_above = np.sum(scores > threshold)
-    print(f"Outlier Stats: {n_above} events flagged in top 1% quantile.")
+        print(f"Global Performance (ROC AUC): {auc:.4f}")
     
-    # Suggestion for LLM
-    if y is not None:
-        # Check mean score difference
-        mean_bg = np.mean(scores[y==0])
-        mean_sig = np.mean(scores[y==1])
-        print(f"Mean Anomaly Score -> Background: {mean_bg:.3f}, Signal: {mean_sig:.3f}")
-        if mean_sig > mean_bg:
-            print("Observation: Signal events are generally more anomalous than background.")
-        else:
-            print("Observation: Signal events look 'normal' to this algorithm.")
-            
-    print("</tool_result>")
+    # --- GLOBAL ANALYSIS (The "Tail" Check) ---
+    threshold = np.percentile(scores, 99)
+    is_anomaly = scores > threshold
+    anomalies = X[is_anomaly]
+    
+    # Global Peak Finding
+    hist, bin_edges = np.histogram(anomalies[:, 0], bins=20)
+    peak_mass = (bin_edges[np.argmax(hist)] + bin_edges[np.argmax(hist)+1]) / 2
+    
+    print(f"\n--- Global Anomalies (Top 1% of entire dataset) ---")
+    print(f"Dominant Mass Peak: {peak_mass:.1f} GeV")
+    
+    # [NEW] Interpretation Guide for the LLM
+    print("\n--- Interpretation Guide ---")
+    print("NOTE: Isolation Forest detects *rarity*. In collider data, the highest energy events (the tail) are naturally rare.")
+    print("WARNING: If the 'Global Mass Peak' above is > 5000 GeV, it is likely just the kinematic tail, NOT a resonance.")
+    print("ACTION: Use the 'FOCUSED ANALYSIS' below to check for anomalies specifically inside your target signal region.")
 
-    # --- 6. Plotting ---
-    if args.plot:
-        plt.figure(figsize=(10, 6))
-        if y is not None:
-            plt.hist(scores[y==0], bins=50, alpha=0.5, label='Background', density=True)
-            plt.hist(scores[y==1], bins=50, alpha=0.5, label='Signal', density=True)
+    # --- [NEW] FOCUSED ANALYSIS (The "Signal" Check) ---
+    if args.region_start is not None and args.region_end is not None:
+        # Convert TeV -> GeV
+        r_start_gev = args.region_start * 1000
+        r_end_gev = args.region_end * 1000
+        
+        print(f"\n--- FOCUSED ANALYSIS (Region: {args.region_start} - {args.region_end} TeV) ---")
+        
+        # 1. Filter Data to Region (Using Column 0 = m_jj)
+        mask_region = (X[:, 0] >= r_start_gev) & (X[:, 0] <= r_end_gev)
+        
+        if np.sum(mask_region) == 0:
+            print("Status: No events found in this region. Cannot analyze.")
         else:
-            plt.hist(scores, bins=50, alpha=0.7, label='Unlabeled Data', density=True)
+            X_focus = X[mask_region]
+            scores_focus = scores[mask_region] # Use the globally trained scores
             
-        plt.title("Isolation Forest Anomaly Scores")
-        plt.xlabel("Anomaly Score (Higher = More Rare)")
+            # 2. Find anomalies LOCALLY within this slice
+            # We take the top 1% *of the events in this region*
+            thresh_focus = np.percentile(scores_focus, 99)
+            is_anom_focus = scores_focus > thresh_focus
+            
+            anoms_focus = X_focus[is_anom_focus]
+            normal_focus = X_focus[~is_anom_focus]
+            
+            # 3. Local Characterization
+            # Mass Peak
+            if len(anoms_focus) > 0:
+                hist_f, bins_f = np.histogram(anoms_focus[:, 0], bins=10)
+                peak_mass_f = (bins_f[np.argmax(hist_f)] + bins_f[np.argmax(hist_f)+1]) / 2
+                print(f"Local Mass Peak: Anomalies in this window cluster at {peak_mass_f:.1f} GeV.")
+                
+                # Substructure (Tau21 is Column 6)
+                avg_tau_anom = np.mean(anoms_focus[:, 6])
+                avg_tau_norm = np.mean(normal_focus[:, 6]) if len(normal_focus) > 0 else 0
+                
+                print(f"Local Substructure (Tau21): Anomaly={avg_tau_anom:.3f} vs Normal={avg_tau_norm:.3f}")
+                
+                # Explicit Verdict for LLM
+                if avg_tau_anom < avg_tau_norm:
+                    print("VERDICT: POSITIVE. Anomalies here have distinct boson-like substructure (lower Tau21).")
+                else:
+                    print("VERDICT: NEGATIVE. Anomalies here look like random background fluctuations.")
+            else:
+                print("Status: No anomalies found in this specific region.")
+    else:
+        print("\n[Tip]: Provide --region_start and --region_end (in TeV) to get a focused analysis of a specific window.")
+
+    print("</tool_result>")
+    
+    # --- 4. Visual Plotting (For Humans) ---
+    if args.plot:
+        plt.figure(figsize=(12, 10))
+        
+        # Plot 1: Score Dist
+        plt.subplot(2, 2, 1)
+        plt.hist(scores, bins=50, density=True, alpha=0.7, color='blue', label='All Data')
+        plt.axvline(threshold, color='red', linestyle='--', label='Top 1% Cut')
+        plt.title("Anomaly Score Distribution")
         plt.legend()
         
-        save_path = f"./toolout/graphs/iforest_scores.png"
+        # Plot 2: Mass Bump Hunt
+        plt.subplot(2, 2, 2)
+        plt.hist(normal[:, 0], bins=50, density=True, alpha=0.5, color='gray', label='Normal (99%)', range=(0, 6000))
+        plt.hist(anomalies[:, 0], bins=50, density=True, alpha=0.5, color='red', label='Anomalies (Top 1%)', range=(0, 6000))
+        plt.title("Invariant Mass (m_jj) Profile")
+        plt.xlabel("Mass [GeV]")
+        plt.legend()
+        
+        # Plot 3: Tau21 Check
+        plt.subplot(2, 2, 3)
+        plt.hist(normal[:, 6], bins=30, density=True, alpha=0.5, color='gray', label='Normal', range=(0,1))
+        plt.hist(anomalies[:, 6], bins=30, density=True, alpha=0.5, color='red', label='Anomalies', range=(0,1))
+        plt.title("Jet 1 Substructure (Tau21)")
+        plt.xlabel("Tau21 (Lower = More Structure)")
+        
+        save_path = f"./toolout/graphs/iforest_physics_profile.png"
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.tight_layout()
         plt.savefig(save_path)
-        print(f"Plot saved to {save_path}")
+        print(f"Detailed physics profile plot saved to {save_path}")
 
 if __name__ == "__main__":
     main()
