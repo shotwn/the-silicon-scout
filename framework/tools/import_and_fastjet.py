@@ -15,7 +15,7 @@ arg_parser.add_argument("--input_file", type=str, default="events_anomalydetecti
 arg_parser.add_argument("--numpy_read_chunk_size", type=int, default=50000, help="Number of rows to read at a time.")
 arg_parser.add_argument("--size_per_row", type=int, default=2100, help="Number of data columns per row (excluding label).")
 arg_parser.add_argument("--output_dir", type=str, default="toolout/fastjet-output", help="Directory to store output files.")
-arg_parser.add_argument("--min_pt", type=float, default=1200.0, help="Minimum transverse momentum for jets.")
+arg_parser.add_argument("--min_pt", type=float, default=30.0, help="Minimum transverse momentum for jet reconstruction.")
 arg_parser.add_argument("--no_label_input", action="store_true", help="Indicates that the input data does not contain labels.")
 
 args = arg_parser.parse_args()
