@@ -7,12 +7,23 @@ from framework.logger import get_logger
 
 logger = get_logger(__name__)
 
+def get_project_root_env():
+    """
+    Creates a copy of the environment and adds the current working directory
+    to PYTHONPATH. This allows subprocesses (like tools) to import from 'framework'
+    without needing relative path hacks.
+    """
+    env = os.environ.copy()
+    # Add CWD to PYTHONPATH so 'import framework' works in subprocesses
+    env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
+    return env
+
 def fastjet_tool(
     input_file: str,
     numpy_read_chunk_size: int | None = None,
     size_per_row: int | None = None,
     output_dir: str | None = None,
-    min_pt: float | None = None,
+    min_pt: float | None = 30.0,
     no_label_input: bool = False,
 ):
     """
@@ -32,7 +43,8 @@ def fastjet_tool(
         numpy_read_chunk_size: Chunk size for reading numpy files.
         size_per_row: Size per row for processing. Default is 2100 for R&D data. Clarify based on data.
         output_dir: Directory to save output files. Default is 'toolout/fastjet-output/'.
-        min_pt: Minimum pt in GeV threshold for clustering. Default is 30.0. This is not trigger threshold pt, but jet reconstruction pt.
+        min_pt: Minimum pt in GeV threshold for clustering. Default is 30.0. 
+                DO NOT MIX WITH TRIGGER THRESHOLD!
                 Depends on smallest jet you want to reconstruct. You can keep it low (30 GeV) for best reconstruction.
         no_label_input: Whether the input file has labels. R&D data may have labels. Real data does not.
     Returns:
@@ -65,7 +77,7 @@ def fastjet_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     # Process the output
@@ -136,7 +148,7 @@ def propose_signal_regions_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     return result.stdout
@@ -174,6 +186,11 @@ def lacathode_preparation_tool(
     Make sure Signal Region request is not too wide. 
 
     Scan mass should be almost the full spectrum, just avoiding extreme tails.
+
+    IMPORTANT: This tools is where you set the "sliding window" Signal Region for LaCATHODE.
+    The min_mass_signal_region and max_mass_signal_region define the window.
+    Choose these based on prior scans (e.g., from propose_signal_regions_tool) or physics motivation.
+    The tool will then prepare data accordingly for that specific SR window.
 
     Expense is 5 GPU minutes for large datasets.
     Args:
@@ -246,7 +263,7 @@ def lacathode_preparation_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     # Fallback if no tool_result tag, return full stdout
@@ -321,7 +338,7 @@ def lacathode_training_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     # Fallback if no tool_result tag, return full stdout
@@ -388,7 +405,7 @@ def lacathode_oracle_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     return result.stdout
@@ -451,7 +468,7 @@ def lacathode_report_generator_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     return result.stdout
@@ -482,7 +499,7 @@ def query_knowledge_base_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
 
     return result.stdout
@@ -515,6 +532,9 @@ def python_repl_tool(
     Available libraries (already imported in the REPL environment):
         numpy as np, pandas as pd, matplotlib.pyplot as plt, os, torch, scipy
 
+    Do not attempt to do analysis here. This is only for small data manipulations,
+    quick plots, calculations, etc.
+
     Args:
         code: The Python code to execute.
     """
@@ -532,7 +552,7 @@ def python_repl_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ,
+        env=get_project_root_env(),
         timeout=3600 # 1 hour timeout
     )
 
@@ -604,7 +624,7 @@ def isolation_forest_tool(
         capture_output=True, 
         text=True, 
         check=True, 
-        env=os.environ
+        env=get_project_root_env()
     )
     
     return result.stdout

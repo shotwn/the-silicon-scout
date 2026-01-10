@@ -24,6 +24,8 @@ class Framework:
         if not self.base_model_name:
             raise ValueError("Base model name must be provided for Ollama models.")
         
+        self.session_id = time.strftime("%Y%m%d_%H%M%S")
+        
         # Initialize Logger
         self.logger = get_logger("Framework", level=INFO)
         
@@ -79,6 +81,7 @@ class Framework:
                         "   It should give an results overview of how many signal events might be present in the data and type of these events.\n"
                         "   As well as reasons for confidence in the results.\n"
                         "   Results will be used to measure this framework's performance in a paper.\n\n"
+                        "   This is session ID: " + self.session_id + "\n"
                     )
                 }
             ],
@@ -115,7 +118,8 @@ class Framework:
                         "- If the Orchestrator suggests lowering min_pt, you can re-run Preparation and subsequent steps.\n"
                         "- If the Orchestrator wants a finer mass binning, you can re-run Report Generator with updated parameters.\n"
                         "- If you are not satisfied with the report, you can re-run the report generator\n\n"
-                        "Use your own judgement to balance cost vs information gain when re-running tools."
+                        "Use your own judgement to balance cost vs information gain when re-running tools. \n"
+                        f"   This is session ID: {self.session_id}\n"
                     )
                 }
             ],
@@ -251,11 +255,15 @@ class Framework:
         Dumps the full message history of all agents to a JSON file for download.
         """
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join("exports", f"session_history_{timestamp}.json")
+        filename = os.path.join("exports", f"session_history_{self.session_id}.{timestamp}.json")
         os.makedirs("exports", exist_ok=True)
         
         # Collect data
         export_data = {
+            "framework_version": "1.0",  # Placeholder version
+            "base_model": self.base_model_name,
+            "rag_engine_enabled": self.rag_engine_enabled,
+            "session_id": self.session_id,
             "timestamp": timestamp,
             "agents": {}
         }

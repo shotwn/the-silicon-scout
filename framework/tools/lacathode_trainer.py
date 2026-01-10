@@ -322,7 +322,8 @@ class LaCATHODETrainer:
         print("--- Evaluating Performance ---")
         self.log_toolout(
             "WARNING: Following evaluation results might not be correct if data received is unlabeled (blackbox) "
-            "or different from training data.\n Do your own evaluation via oracle tool."
+            "or different from training data.\n "
+            "IMPORTANT: Do your own evaluation via oracle tool."
         )
         
         true_labels = self.inner_test[:, -1]
@@ -388,7 +389,9 @@ class LaCATHODETrainer:
         self.log_toolout(f"\nResult: ROC AUC = {roc_auc:.4f}")
 
         if roc_auc < 0.3:
-            self.log_toolout("Interpretation: Model performance is near random guessing (0.3). Training may have failed.")
+            self.log_toolout("Interpretation: CRITICAL FAILURE (Anti-Learning). AUC < 0.3 means the model is predicting the OPPOSITE of the truth.")
+            self.log_toolout("DIAGNOSIS: You likely have a 'Poisoned Sideband'. The actual anomaly is probably located in your Sideband (training data), not your Signal Region.")
+            self.log_toolout("RECOMMENDATION: Shift your Signal Region window LEFT or RIGHT to capture the anomaly inside the 'hole' (SR).")
         elif roc_auc > 0.8:
             self.log_toolout("Interpretation: Strong separation detected between Signal and Background.")
         
