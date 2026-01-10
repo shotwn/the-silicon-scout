@@ -23,6 +23,7 @@ TOOL_REGISTRY = {
     "query_gemma_cloud_tool": query_gemma_cloud_tool,
     "propose_signal_regions_tool": propose_signal_regions_tool,
     "python_repl_tool": python_repl_tool,
+    "isolation_forest_tool": isolation_forest_tool,
 }
 
 PENDING_DIR = os.path.join("jobs", "pending")
