@@ -115,6 +115,13 @@ def plot_anomaly_results(
     plt.setp(ax0.get_xticklabels(), visible=False)
 
     # 5. Save
+    session_id = os.environ.get("FRAMEWORK_SESSION_ID")
+    if session_id:
+        save_path_dir = os.path.dirname(save_path)
+        save_path_file = os.path.basename(save_path)
+        save_path = os.path.join(save_path_dir, f"{session_id}_{save_path_file}")
+
+
     if not os.path.exists(os.path.dirname(save_path)):
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 

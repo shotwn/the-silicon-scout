@@ -266,10 +266,22 @@ def main():
         plt.hist(anomalies[:, 6], bins=30, density=True, alpha=0.5, color='red', label='Anomalies', range=(0,1))
         plt.title("Jet 1 Substructure (Tau21)")
         plt.xlabel("Tau21 (Lower = More Structure)")
-        
-        save_path = f"./toolout/graphs/iforest_physics_profile.png"
-        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
         plt.tight_layout()
+        
+        session_id = os.environ.get("FRAMEWORK_SESSION_ID", None)
+        if session_id:
+            save_path = f"./toolout/graphs/{session_id}_iforest_score_distribution.png"
+        else:
+            save_path = f"./toolout/graphs/iforest_score_distribution.png"
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+        suptitle_prefix = ""
+        if session_id:
+            suptitle_prefix = f"{session_id} "
+
+        plt.suptitle(f"{suptitle_prefix}Isolation Forest Anomaly Detection Results", fontsize=16, y=1.02)
+
         plt.savefig(save_path)
         print(f"Detailed physics profile plot saved to {save_path}")
 

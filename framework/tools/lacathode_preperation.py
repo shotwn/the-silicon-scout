@@ -138,6 +138,8 @@ class LaCATHODEPreperation:
         self.logger = get_logger("LaCATHODEPreperation", level="INFO")
         self.toolout_texts = []
 
+        self.session_id = os.environ.get("FRAMEWORK_SESSION_ID", None)
+
     def add_toolout_text(self, text):
         self.toolout_texts.append(text)
         self.logger.info(text)
@@ -334,7 +336,13 @@ class LaCATHODEPreperation:
             axs[i // columns][i % columns].set_ylabel('Counts')
             axs[i // columns][i % columns].grid()
 
-        save_to = os.path.join(GRAPHS_DIR, f'feature_distribution_{data_label}.png')
+        if self.session_id:
+            plt.suptitle(f'Feature Distributions for {data_label} - Session {self.session_id}', fontsize=16)
+        else:
+            plt.suptitle(f'Feature Distributions for {data_label}', fontsize=16)
+
+        save_prefix = f'{self.session_id + "_" if self.session_id else ""}'
+        save_to = os.path.join(GRAPHS_DIR, f'{save_prefix}feature_distribution_{data_label}.png')
         plt.savefig(save_to)
 
     def training_mode(self):

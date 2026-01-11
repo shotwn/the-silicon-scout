@@ -406,10 +406,19 @@ class LaCATHODETrainer:
             plt.plot([0, 1], [0, 1], 'k--')
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
-            plt.title('Anomaly Detection Performance')
             plt.legend(loc='lower right')
+
+            session_id = os.environ.get("FRAMEWORK_SESSION_ID")
+            if session_id:
+                save_path = os.path.join('toolout', 'graphs', f'{session_id}_lacathode_roc.png')
+                plot_title = f'LaCATHODE ROC Curve ({session_id})'
+            else:
+                save_path = os.path.join('toolout', 'graphs', 'lacathode_roc.png')
+                plot_title = 'LaCATHODE ROC Curve'
             
-            save_path = os.path.join('toolout', 'graphs', 'lacathode_roc.png')
+            plt.title(plot_title)
+            plt.tight_layout()
+            
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
             plt.savefig(save_path)

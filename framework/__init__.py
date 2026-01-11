@@ -6,6 +6,7 @@ import argparse
 import threading
 import time
 import glob
+from dotenv import load_dotenv
 
 # Removed transformers imports
 # from transformers import ... 
@@ -17,6 +18,9 @@ from framework.logger import get_logger
 from logging import DEBUG, INFO, WARNING, ERROR
 # from framework.utilities.cuda_ram_debug import log_cuda_memory # Optional, likely not needed for Ollama
 
+# Load environment variables from .env file immediately
+load_dotenv()
+
 class Framework:
     def __init__(self, *args, **kwargs):
         # Default to a robust model available in Ollama
@@ -24,7 +28,7 @@ class Framework:
         if not self.base_model_name:
             raise ValueError("Base model name must be provided for Ollama models.")
         
-        self.session_id = time.strftime("%Y%m%d_%H%M%S")
+        self.session_id = self._initialize_session()
         
         # Initialize Logger
         self.logger = get_logger("Framework", level=INFO)
@@ -175,6 +179,35 @@ class Framework:
         self.is_processing = False
         self.placeholder_text = "Type here..."
     
+
+    def _initialize_session(self):
+        counter_path = "session_counter.txt"
+        os.makedirs("jobs", exist_ok=True)
+
+        # Read the last number safely
+        if os.path.exists(counter_path):
+            with open(counter_path, "r") as f:
+                try:
+                    count = int(f.read().strip())
+                except ValueError:
+                    count = 0
+        else:
+            count = 0
+
+        # Increment and save immediately to "lock" this session number
+        new_count = count + 1
+        with open(counter_path, "w") as f:
+            f.write(str(new_count))
+
+        device_tag = os.environ.get("DEVICE_TAG")
+        if device_tag:
+            session_id = f"{device_tag}_{new_count:03d}"
+        else:
+            session_id = f"SESS_{new_count:03d}"
+
+        os.environ["FRAMEWORK_SESSION_ID"] = session_id
+
+        return session_id
 
     def get_initial_messages(self, agent):
         return self.default_initial_messages.get(agent, [])
