@@ -109,7 +109,7 @@ class LocalAgent:
         if self.messages and self.messages[-1]['role'] == 'tool':
             # Trigger generation after loading tool result
             self.logger.info("Resuming generation after tool result...")
-            resume_signal = "Review the tool output above and proceed with the next step of the analysis."
+            resume_signal = "" # Disabled again because model thinks there is new user input
             generator = self.respond(resume_signal, message_id=uuid.uuid4().hex)
             
             # Yield this back to caller
