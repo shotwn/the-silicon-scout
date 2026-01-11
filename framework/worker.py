@@ -160,6 +160,10 @@ def run_worker(cache_tools=[]):
     :param cache_tools: List of tool names for which caching is enabled. Use ['*'] or ['all'] to enable for all tools.
     """
     logger.info("Worker started. Monitoring jobs/pending/ ...")
+
+    if cache_tools:
+        logger.info(f"Worker: Debug Cache Mode ENABLED for tools: {cache_tools}")
+
     while True:
         try:
             jobs = [f for f in os.listdir(PENDING_DIR) if f.endswith(".json")]
