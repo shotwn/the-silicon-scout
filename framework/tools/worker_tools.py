@@ -27,29 +27,33 @@ def fastjet_tool(
     no_label_input: bool = False,
 ):
     """
-    Tool to run FastJet clustering on input data. 
-    Uses the import_and_fastjet.py script. 
-    If input data is blackbox or real life data, meaning it has no labels, set no_label_input=True. 
-    If user says R&D data, meaning it has labels, no_label_input=False. 
+    Tool to run FastJet clustering on raw input data (H5 -> JSONL).
     
-    Files will be saved in output_dir.
-    Expected output files:
-    - For R&D data (with labels): {output_dir}/background_events.jsonl and {output_dir}/signal_events.jsonl
-    - For blackbox/real data (no labels): {output_dir}/unlabeled_events.jsonl
+    This is the **Reconstruction Step**. It groups raw particle hits into Jets.
+    
+    CRITICAL PHYSICS NOTE - DO NOT CONFUSE pT THRESHOLDS:
+    - `min_pt` (Arg here): This is the **Reconstruction Threshold**. It sets the floor for the *smallest jet* to save.
+      -> **KEEP IT LOW (e.g., 30.0 GeV).**
+      -> If you set this high (e.g., 1000 GeV), you will delete the softer 2nd jet and destroy the event's substructure.
+      
+    - Trigger Threshold (Analysis Step): This is the event-level cut (e.g., 1200 GeV) applied *later* to select interesting events.
+      -> Do NOT apply the trigger cut in this tool.
+    
+    Files will be saved in output_dir:
+    - R&D (Labeled): `background_events.jsonl`, `signal_events.jsonl`
+    - Blackbox (Unlabeled): `unlabeled_events.jsonl`
 
-    Expense is 10-20 CPU minutes for large datasets.
     Args:
-        input_file: Path to the input data file. Should be in .h5 format.
-        numpy_read_chunk_size: Chunk size for reading numpy files.
-        size_per_row: Size per row for processing. Default is 2100 for R&D data. Clarify based on data.
-        output_dir: Directory to save output files. Default is 'toolout/fastjet-output/'.
-        min_pt: Minimum pt in GeV threshold for clustering. Default is 30.0. 
-                DO NOT MIX WITH TRIGGER THRESHOLD!
-                Depends on smallest jet you want to reconstruct. You can keep it low (30 GeV) for best reconstruction.
-        no_label_input: Whether the input file has labels. R&D data may have labels. Real data does not.
-    Returns:
-        A string summarizing the preprocessing results.
+        input_file: Path to input .h5 file.
+        output_dir: Directory to save processed JSONL files.
+        min_pt: Minimum pT (GeV) for a RECONSTRUCTED jet. Default 30.0. 
+                Keep this low (< 50 GeV) to preserve jet substructure.
+        no_label_input: Set True for Blackbox/Real data (ignores missing 'label' column).
+                        Set False (default) for R&D data to split Signal/Background.
+        numpy_read_chunk_size: Memory chunk size (advanced).
+        size_per_row: H5 row stride (advanced).
     """
+    
     if input_file is None:
         raise ValueError("Error: input_file parameter is required for FastJet tool.")
     
@@ -165,48 +169,47 @@ def lacathode_preparation_tool(
     validation_fraction: float | None = None,
     scan_start_mass: float | None = 2.0,
     min_mass_signal_region: float | None = 3.3,
-    max_mass_signal_region: float | None = 3.8,
-    scan_end_mass: float | None = 4.0,
+    max_mass_signal_region: float | None = 3.7,
+    scan_end_mass: float | None = 5.0,
     tho_21_threshold: float | None = None,
 ):
     """
-    Tool to run LaCATHODE data preparation.
-
-    Inputs are result of FastJet tool, fastjet tool result will give the file names.
-
-    If fastjet tool result is background_events.jsonl and signal_events.jsonl files, use 'training' mode 
-        and provide both input_background and input_signal.
-
-    If fastjet tool result is only unlabeled_events.jsonl file, use 'inference' mode and provide input_unlabeled.
+    Prepares data for LaCATHODE training by defining the Signal Region (SR) and Sidebands (SB).
     
-    As a clarification, R&D data usually has both background and signal files, so use 'training' mode.
-    Real life or blackbox data usually has only unlabeled file, so use 'inference' mode.
+    CRITICAL: Strict geometric constraints apply. The tool will CRASH if Sideband Anchors are too narrow.
+    
+    1. MODE SELECTION:
+       - 'training': Use for Labeled/R&D data. Requires `input_background` AND `input_signal`.
+       - 'inference': Use for Blackbox/Unlabeled data. Requires `input_unlabeled`.
 
-    Always make sure scan_start_mass < min_mass_signal_region < max_mass_signal_region < scan_end_mass.
-    Make sure Signal Region request is not too wide. 
+    2. MASS GEOMETRY (All units in TeV):
+       The Sideband (SB) is the full scan range. The Signal Region (SR) is a "hole" inside it.
+       You must ensure enough SB data exists on *both sides* of the SR to anchor the fit.
 
-    Scan mass should be almost the full spectrum, just avoiding extreme tails.
+       Constraint A (Left Anchor >= 0.5 TeV):
+         `scan_start_mass` <= `min_mass_signal_region` - 0.5
+       
+       Constraint B (Right Anchor >= 0.5 TeV):
+         `scan_end_mass`   >= `max_mass_signal_region` + 0.5
+       
+       Constraint C (SR Width 0.2-1.2 TeV):
+         0.2 <= (`max_mass_signal_region` - `min_mass_signal_region`) <= 1.2
 
-    IMPORTANT: This tools is where you set the "sliding window" Signal Region for LaCATHODE.
-    The min_mass_signal_region and max_mass_signal_region define the window.
-    Choose these based on prior scans (e.g., from propose_signal_regions_tool) or physics motivation.
-    The tool will then prepare data accordingly for that specific SR window.
+    3. EXAMPLE VALID CONFIGURATION:
+       Target SR: 3.3 to 3.7 TeV.
+       Left Anchor Limit:  3.3 - 0.5 = 2.8 (Set scan_start_mass <= 2.8)
+       Right Anchor Limit: 3.7 + 0.5 = 4.2 (Set scan_end_mass >= 4.2)
 
-    Expense is 5 GPU minutes for large datasets.
     Args:
-        run_id: Unique identifier for the run. Determines the output directory. (required)
-        run_mode: 'training' or 'inference'. Default is 'training'.
-        input_background: Path to background data file (required for training mode).
-        input_signal: Path to signal data file (required for training mode).
-        input_unlabeled: Path to unlabeled data file (required for inference mode).
-        shuffle_seed: Random seed for shuffling. (optional)
-        training_fraction: Fraction of data to use for training. (optional)
-        validation_fraction: Fraction of data to use for validation.
-        scan_start_mass: Minimum mass for Sideband (SB) region in TeV. (optional)
-        min_mass_signal_region: Minimum mass for Signal Region (SR) window in TeV.
-        max_mass_signal_region: Maximum mass for Signal Region (SR) window in TeV.
-        scan_end_mass: Maximum mass for Sideband (SB) region in TeV. (optional)
-        tho_21_threshold: Threshold for Tau2/1 ratio filtering (testing feature, might give wrong results). (optional)
+        run_id: Unique string ID for the output directory.
+        run_mode: 'training' (labeled) or 'inference' (unlabeled).
+        input_background: Path to background events (Training only).
+        input_signal: Path to signal events (Training only).
+        input_unlabeled: Path to unlabeled events (Inference only).
+        scan_start_mass: Global Start (SB Min) in TeV.
+        min_mass_signal_region: Signal Region Start in TeV.
+        max_mass_signal_region: Signal Region End in TeV.
+        scan_end_mass: Global End (SB Max) in TeV.
     """
     
     # min_mass and max_mass defaults were hidden on purpose to force LLM change them run to run properly.
@@ -300,9 +303,9 @@ def lacathode_training_tool(
         load_flow: If True, loads an existing Flow model from model_dir instead of retraining. 
                    Useful if the Flow is already good and you only want to retrain the classifier.
         load_classifier: If True, loads an existing Classifier instead of retraining.
-        epochs_flow: Number of epochs for Flow training (default 100). 
+        epochs_flow: Number of epochs for Flow training (default 500). 
                      Reduce for testing (e.g., 10), increase for better background modeling.
-        epochs_clf: Number of epochs for Classifier training (default 50).
+        epochs_clf: Number of epochs for Classifier training (default 250).
         plot: If True, generates an ROC curve plot after training.
     
     Returns:
