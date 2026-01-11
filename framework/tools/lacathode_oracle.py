@@ -3,7 +3,7 @@ import os
 import sys
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from lacathode_common import LaCATHODEProcessor # <--- Uses the common file
+from framework.tools.lacathode_common import LaCATHODEProcessor # <--- Uses the common file
 
 # --- Path Setup for sk_cathode ---
 current_dir = os.path.dirname(os.path.abspath(__file__))

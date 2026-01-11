@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 import numpy as np
 import json
 import os
-import lacathode_event_dictionary
+import framework.tools.lacathode_event_dictionary as lacathode_event_dictionary
 
 from framework.logger import get_logger
 
@@ -35,15 +35,15 @@ parser.add_argument('--validation_fraction', type=float, default=0.33,
                     help='Fraction of data to use for validation')
 
 # For defining the signal region (SR) window
-parser.add_argument('--side_band_min', type=float, default=2.5,
+parser.add_argument('--side_band_min', type=float, default=2.0,
                     help='Minimum mass for Sideband (SB) region in TeV')
 
 parser.add_argument('--min_mass', type=float, default=3.3,
                     help='Minimum mass for Signal Region (SR) window in TeV')
-parser.add_argument('--max_mass', type=float, default=3.8,
+parser.add_argument('--max_mass', type=float, default=3.7,
                     help='Maximum mass for Signal Region (SR) window in TeV')
 
-parser.add_argument('--side_band_max', type=float, default=4.0,
+parser.add_argument('--side_band_max', type=float, default=5.0,
                     help='Maximum mass for Sideband (SB) region in TeV')
 
 parser.add_argument('--tho_21_threshold', type=float, default=None,
@@ -107,28 +107,46 @@ class LaCATHODEPreperation:
         self.run_mode = args.get('run_mode', 'training')  # 'training' or 'inference'
 
         self.min_mass = args.get('min_mass', 3.3)
-        self.max_mass = args.get('max_mass', 3.8)
+        self.max_mass = args.get('max_mass', 3.7)
         self.side_band_min = args.get('side_band_min', 2.0)
-        self.side_band_max = args.get('side_band_max', 4.0)
+        self.side_band_max = args.get('side_band_max', 5.0)
 
-        if self.min_mass > 10.0 or \
-            self.max_mass > 10.0 or \
-            self.side_band_min > 10.0 or \
-            self.side_band_max > 10.0:
-            raise ValueError("Mass values should be in TeV, not GeV. Please provide values less than 10.0")
+        # Safety Checks for SR and SB definitions
+        # Logical Consistency & Units
+        if self.min_mass >= self.max_mass:
+            raise ValueError(f"Signal Region Error: min_mass ({self.min_mass}) must be smaller than max_mass ({self.max_mass}).")
+            
+        if self.side_band_min >= self.side_band_max:
+             raise ValueError(f"Sideband Error: side_band_min ({self.side_band_min}) must be smaller than side_band_max ({self.side_band_max}).")
 
-        if self.side_band_min >= self.min_mass or self.side_band_max <= self.max_mass:
-            print(f"{self.side_band_min} {self.min_mass} {self.max_mass} {self.side_band_max}")
-            raise ValueError("Sideband extremes must be outside the Signal Region window.")
+        if any(x > 10.0 for x in [self.min_mass, self.max_mass, self.side_band_min, self.side_band_max]):
+            raise ValueError("Unit Mismatch: Mass values > 10.0 detected. Please provide inputs in TeV (e.g. 3.5), not GeV.")
+
+        # Containment Checks
+        if self.side_band_min >= self.min_mass:
+            raise ValueError(f"Left Sideband Missing! side_band_min ({self.side_band_min}) must be strictly lower than SR start ({self.min_mass}).")
+            
+        if self.side_band_max <= self.max_mass:
+            raise ValueError(f"Right Sideband Missing! side_band_max ({self.side_band_max}) must be strictly higher than SR end ({self.max_mass}).")
+
+        # Reliability Checks (Anchors)
+        # LaCATHODE needs ~0.5 TeV on BOTH sides to interpolate the background safely.
+        left_anchor = self.min_mass - self.side_band_min
+        right_anchor = self.side_band_max - self.max_mass
+        min_anchor = 0.5 
+
+        if left_anchor < min_anchor:
+            raise ValueError(f"Left Sideband too narrow ({left_anchor:.2f} TeV). Needs > {min_anchor} TeV for stable interpolation.")
         
-        if self.max_mass - self.min_mass < 0.1:
-            raise ValueError("Signal Region window too small. Please provide a larger window.")
-        
-        if self.max_mass - self.min_mass > 1.0:
-            raise ValueError("Signal Region window too large. Please provide a smaller window.")
-        
-        if self.side_band_max - self.side_band_min < 2.0:
-            raise ValueError("Sideband region too small. Please provide a larger sideband region.")
+        if right_anchor < min_anchor:
+            raise ValueError(f"Right Sideband too narrow ({right_anchor:.2f} TeV). Needs > {min_anchor} TeV to prevent extrapolation instability.")
+
+        # Signal Region Sizing
+        sr_width = self.max_mass - self.min_mass
+        if sr_width < 0.2:
+            raise ValueError(f"Signal Region definition too narrow ({sr_width:.2f} TeV). Window should be at least 0.2 TeV to capture sufficient events.")
+        if sr_width > 1.2:
+            raise ValueError(f"Signal Region definition too wide ({sr_width:.2f} TeV). Background estimation degrades if window > 1.0 TeV.")
 
         
         self.tho_21_threshold = args.get('tho_21_threshold', None)  # Example threshold for Tau2/1 ratio filtering
@@ -345,6 +363,49 @@ class LaCATHODEPreperation:
         save_to = os.path.join(GRAPHS_DIR, f'{save_prefix}feature_distribution_{data_label}.png')
         plt.savefig(save_to)
 
+    def apply_filtering(self, data):
+        """
+        Apply any filtering criteria to the data array
+        For example, filter based on Tau2/1 ratio if threshold is set
+        """
+        # Copy data to avoid modifying original
+        data = data.copy()
+
+        initial_count = len(data)
+
+        # Filter non-finite events
+        data = data[np.all(np.isfinite(data), axis=1)]
+
+        dropped = initial_count - len(data)
+        if dropped > 0:
+            self.add_toolout_text(f"Dropped {dropped} non-finite events from raw data.")
+
+        # We fetch indices dynamically using dictionary tags
+        # Note: Data here is already normalized (Mass in TeV) by load_to_numpy if normalize=True
+        # But looking at load_to_numpy, it normalizes m_jj but keeps jet mass (mj1/mj2) in TeV as well.
+        # 10 GeV = 0.01 TeV.
+        
+        # Fetch indices
+        idx_j1_mass = lacathode_event_dictionary.tags.index("j1_mass")
+        idx_j2_mass = lacathode_event_dictionary.tags.index("j2_mass")
+        idx_j1_tau21 = lacathode_event_dictionary.tags.index("j1_tau2_over_tau1")
+        idx_j2_tau21 = lacathode_event_dictionary.tags.index("j2_tau2_over_tau1")
+
+        # Create Mask: Keep only events where BOTH jets have Mass > 10 GeV (0.01 TeV)
+        # and valid Tau21 (> 0)
+        clean_mask = (data[:, idx_j1_mass] > 0.01) & (data[:, idx_j2_mass] > 0.01)
+        clean_mask &= (data[:, idx_j1_tau21] > 0.0) & (data[:, idx_j2_tau21] > 0.0)
+
+        # Apply
+        pre_clean_count = len(data)
+        data = data[clean_mask]
+        cleaned_count = pre_clean_count - len(data)
+        
+        if cleaned_count > 0:
+            self.add_toolout_text(f"CLEANING: Removed {cleaned_count} artifact events (Mass < 10 GeV or Invalid Tau21).")
+
+        return data
+
     def training_mode(self):
         """
         MODE 1: Proving the Model (Training/Validation/Testing)
@@ -360,20 +421,19 @@ class LaCATHODEPreperation:
         
         # Combine and Shuffle
         combined = np.vstack((bg, sig))
+        self.add_toolout_text(f"Loaded {bg.shape[0]} background events and {sig.shape[0]} signal events, total {combined.shape[0]} events.")
 
         # Warn if events less than 1000
         if combined.shape[0] < 10000:
             self.add_toolout_text("WARNING: Total number of events less than 10000. Recheck signal region window and scan range.")
 
         # Filter non-finite events before splitting
-        initial_count = len(combined)
-        combined = combined[np.all(np.isfinite(combined), axis=1)]
-        dropped = initial_count - len(combined)
-        if dropped > 0:
-            self.add_toolout_text(f"Dropped {dropped} non-finite events from raw data.")
+        combined = self.apply_filtering(combined)
+        self.add_toolout_text(f"{combined.shape[0]} events remain after filtering non-finite and artifact events.")
 
         # Cut sideband extremes
         combined = self.cut_sideband_extremes(combined)
+        self.add_toolout_text(f"{combined.shape[0]} events remain after cutting sideband extremes ({self.side_band_min} to {self.side_band_max} TeV).")
 
         # Shuffle and Split
         # This handles the random seed, shuffling, and index slicing
@@ -383,11 +443,18 @@ class LaCATHODEPreperation:
             val_fraction=self.validation_fraction
         )
 
+        # Echo event counts
+        self.add_toolout_text(f"Data split into {train_set.shape[0]} training events, {val_set.shape[0]} validation events, and {test_set.shape[0]} testing events.")
+
         # Separate SR/SB (Inner/Outer)
         # We need "Outer" to train the model, and "Inner" to test it.
         tr_in, tr_out = self.separate_SB_SR(train_set)
         val_in, val_out = self.separate_SB_SR(val_set)
         test_in, test_out = self.separate_SB_SR(test_set)
+
+        self.add_toolout_text(f"Training set: {tr_in.shape[0]} inner (SR) events, {tr_out.shape[0]} outer (SB) events.")
+        self.add_toolout_text(f"Validation set: {val_in.shape[0]} inner (SR) events, {val_out.shape[0]} outer (SB) events.")
+        self.add_toolout_text(f"Testing set: {test_in.shape[0]} inner (SR) events, {test_out.shape[0]} outer (SB) events.")
 
         # Save standard CATHODE files
         self.save_numpy(tr_out, os.path.join(self.output_dir, 'outerdata_train.npy'))
@@ -433,16 +500,14 @@ class LaCATHODEPreperation:
 
         # Load unlabeled data (Label defaults to 0 usually, or doesn't matter)
         data = self.load_to_numpy(self.input_unlabeled, label_type='background')
+        self.add_toolout_text(f"Loaded {data.shape[0]} unlabeled events from {self.input_unlabeled}.")
 
         # Filter non-finite events before splitting
-        initial_count = len(data)
-        data = data[np.all(np.isfinite(data), axis=1)]
-        dropped = initial_count - len(data)
-        if dropped > 0:
-            self.add_toolout_text(f"Dropped {dropped} non-finite events from raw data.")
+        data = self.apply_filtering(data)
 
         # Cut sideband extremes
         data = self.cut_sideband_extremes(data)
+        self.add_toolout_text(f"{data.shape[0]} events remain after cutting sideband extremes ({self.side_band_min} to {self.side_band_max} TeV).")
         
         # Shuffle and Split
         # This handles the random seed, shuffling, and index slicing
@@ -456,15 +521,22 @@ class LaCATHODEPreperation:
             val_fraction=val_fraction
         )
 
+        # Echo event counts
+        self.add_toolout_text(f"Unlabeled data split into {train_set.shape[0]} training events and {val_set.shape[0]} validation events.")
+
         # Separate SR/SB (Inner/Outer)
         # We need "Outer" to train the model, and "Inner" to test it.
         tr_in, tr_out = self.separate_SB_SR(train_set)
         val_in, val_out = self.separate_SB_SR(val_set)
-        
+
         # Since there are no labels in our data files, we don't need to separate test set
         # We just copy val_set to test_set for code simplicity
         test_in = val_in.copy()
         test_out = val_out.copy()
+
+        self.add_toolout_text(f"Training set: {tr_in.shape[0]} inner (SR) events, {tr_out.shape[0]} outer (SB) events.")
+        self.add_toolout_text(f"Validation set: {val_in.shape[0]} inner (SR) events, {val_out.shape[0]} outer (SB) events.")
+        self.add_toolout_text(f"Testing set: {test_in.shape[0]} inner (SR) events, {test_out.shape[0]} outer (SB) events.")
         
         # Save
         # 'outerdata_inference_train.npy' -> Use this to train the Flow model on real data sidebands

@@ -1,7 +1,7 @@
 import numpy as np
 import os
 import sys
-import lacathode_event_dictionary as LEDict
+import framework.tools.lacathode_event_dictionary as LEDict
 from sklearn.preprocessing import StandardScaler
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import make_pipeline
@@ -138,15 +138,6 @@ class SafeClipper(BaseEstimator, TransformerMixin):
         X_clipped = np.clip(X, self.epsilon, 1.0 - self.epsilon)
         return X_clipped
 
-import numpy as np
-import lacathode_event_dictionary as LEDict
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler
-
-import numpy as np
-import lacathode_event_dictionary as LEDict
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler
 
 class LaCATHODEProcessor(BaseEstimator, TransformerMixin):
     """

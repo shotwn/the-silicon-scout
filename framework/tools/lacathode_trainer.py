@@ -9,8 +9,8 @@ from sklearn.utils import shuffle
 from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
 
-import lacathode_event_dictionary as LEDict
-from lacathode_common import LaCATHODEProcessor
+import framework.tools.lacathode_event_dictionary as LEDict
+from framework.tools.lacathode_common import LaCATHODEProcessor
 
 # Get the directory of the current script
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -60,13 +60,13 @@ parser.add_argument("--load_flow", action="store_true",
                     help="Load existing Flow model instead of retraining")
 parser.add_argument("--load_classifier", action="store_true",
                     help="Load existing Classifier instead of retraining")
-parser.add_argument("--epochs_flow", type=int, default=100,
+parser.add_argument("--epochs_flow", type=int, default=int(os.getenv("LACATHODE_FLOW_EPOCHS", 100)),
                     help="Number of epochs for Flow training")
-parser.add_argument("--epochs_clf", type=int, default=50,
+parser.add_argument("--epochs_clf", type=int, default=int(os.getenv("LACATHODE_CLASSIFIER_EPOCHS", 50)),
                     help="Number of epochs for Classifier training")
 parser.add_argument("--plot", action="store_true",
                     help="Generate ROC curve plot after training")
-parser.add_argument("--batch_size", type=int, default=256,
+parser.add_argument("--batch_size", type=int, default=int(os.getenv("LACATHODE_BATCH_SIZE", 256)),
                     help="Batch size for training models, adjust based on available memory, 256 is low but safe")
 parser.add_argument("--verbose", action="store_true", default=True,
                     help="Enable verbose logging during training")
@@ -74,7 +74,7 @@ parser.add_argument("--verbose", action="store_true", default=True,
 args = parser.parse_args()
 
 class LaCATHODETrainer:
-    def __init__(self, data_dir, model_dir, batch_size=256):
+    def __init__(self, data_dir, model_dir, batch_size=None):
         self.data_dir = data_dir
         self.model_dir = model_dir
         if not os.path.exists(self.model_dir):
@@ -116,7 +116,19 @@ class LaCATHODETrainer:
 
         # Batch Size
         # Adjust based on available memory
-        self.batch_size = batch_size
+        if batch_size:
+            self.batch_size = batch_size
+        else:
+            self.batch_size = int(os.environ.get("LACATHODE_BATCH_SIZE", 256))
+
+        self.log_toolout(
+            (
+                f"Using device: {self.device} "
+                f"Batch Size: {self.batch_size} "
+                f"Flow Max Epochs: {args.epochs_flow} "
+                f"Classifier Max Epochs: {args.epochs_clf}\n"
+            )
+        )
     
     def log_toolout(self, message):
         self.toolout_response.append(message)
@@ -381,6 +393,14 @@ class LaCATHODETrainer:
         
         if len(y_clean) == 0:
             self.log_toolout("No valid scores to evaluate.")
+            return
+        
+        # Handle Unlabeled/Blackbox Data gracefully
+        # If there is no Signal (Label=1) in the test set, we cannot calculate ROC.
+        # This prevents the "ROC AUC = nan" confusion.
+        if np.sum(y_clean == 1) == 0:
+            self.log_toolout("Evaluation Skipped: No signal labels found in test set (Inference/Blackbox Mode).")
+            self.log_toolout("This is expected. The model is trained and ready for the Oracle tool.")
             return
 
         fpr, tpr, _ = roc_curve(y_clean, scores_clean)
