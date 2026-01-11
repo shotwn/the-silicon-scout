@@ -83,15 +83,24 @@ def propose_regions(
         # The invariant mass turn-on is roughly 2x the jet pT trigger threshold.
         safe_mass_floor = 2.0 * trigger_threshold_pt
         
-        if global_start < safe_mass_floor:
-            # Using the new variable name in the debug print
-            logger.info(f"Adjusting scan start from {global_start} GeV to {safe_mass_floor} GeV "
-                f"(Safe Floor for Trigger pT > {trigger_threshold_pt} GeV)")
-            current_sr_start = safe_mass_floor
+        # Enforce Minimum Anchor Width (0.5 TeV = 500 GeV)
+        # The SR cannot start until we have at least 500 GeV of Sideband to its left.
+        min_anchor_gev = 500.0
+        
+        # Start Constraint: Must be > safe floor AND > global_start + anchor
+        min_valid_start = max(safe_mass_floor, global_start + min_anchor_gev)
+        
+        if min_valid_start > global_start:
+            logger.info(f"Adjusting scan start to {min_valid_start} GeV to ensure {min_anchor_gev} GeV Left Anchor.")
+            current_sr_start = min_valid_start
         else:
             current_sr_start = global_start
 
-        while current_sr_start + window_width <= global_stop:
+        # Stop Constraint: Must leave room for Right Anchor
+        # The scan must stop early enough so that (global_stop - sr_end) >= 500
+        effective_global_stop = global_stop - min_anchor_gev
+
+        while current_sr_start + window_width <= effective_global_stop:
             sr_end = current_sr_start + window_width
             sr_center = (current_sr_start + sr_end) / 2
             
