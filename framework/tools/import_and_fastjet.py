@@ -8,6 +8,7 @@ vector.register_awkward()
 
 import json
 import os
+import time
 from argparse import ArgumentParser
 
 arg_parser = ArgumentParser()
@@ -213,6 +214,8 @@ if __name__ == "__main__":
     gen = generator()
     chunk_index = 0
     procs: list[multiprocessing.Process] = []
+    cpus_to_use = max(1, num_cpus - 1)  # Leave one CPU free
+    print(f"Using {cpus_to_use} CPU cores for processing.")
     while True:
         try:
             df_chunk = next(gen)
@@ -222,8 +225,12 @@ if __name__ == "__main__":
             p = multiprocessing.Process(target=process_events_chunk, args=(df_chunk, chunk_index))
             p.start()
             procs.append(p)
+
+            # Sleep briefly to stagger process starts
+            time.sleep(2)
+
             # If we have too many processes, wait for them to finish
-            if len(procs) >= num_cpus:
+            if len(procs) >= cpus_to_use:
                 for proc in procs:
                     proc.join(timeout=6400) # Wait for all processes to finish
                 procs = []
@@ -273,10 +280,15 @@ if __name__ == "__main__":
                 os.remove(fname) # Remove the chunk file after merging
 
 
+    if no_label:
+        file_locations = f"{args.output_dir}/unlabeled_events.jsonl"
+    else:
+        file_locations = f"{args.output_dir}/background_events.jsonl and {args.output_dir}/signal_events.jsonl"
+
     print(
         "<tool_result>"
         f"Data processing with FastJet completed."
-        f" Signal events are in {args.output_dir}/signal_events.jsonl and background events are in {args.output_dir}/background_events.jsonl."
+        f" Output files: {file_locations}."
         f" Example data format:"
         ' {{"type": "signal", "jets": [{{"px": ..., "py": ..., "pz": ..., "m": ..., "n_particles": ..., "P_T_lead": ..., "tau_1": ..., "tau2": ..., "tau_3": ...}}], "n_particles": ..., "m_jj": ..., "dR": ...}}'
         "</tool_result>"
