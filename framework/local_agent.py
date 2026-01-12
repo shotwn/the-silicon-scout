@@ -193,7 +193,7 @@ class LocalAgent:
         return history
 
     def respond(self, user_input:str, message_id=None) -> list:
-        max_steps = 10
+        max_steps = 100
         previous_steps_parsed = []
         while max_steps > 0:
             generated = self.generate_step(user_input, message_id)
@@ -252,6 +252,17 @@ class LocalAgent:
             else:
                 return previous_steps_parsed
 
+        # Check if max steps exceeded
+        if max_steps <= 0:
+            yield previous_steps_parsed + [{
+                "content": "Error: Maximum tool call steps exceeded. Aborting to prevent infinite loop.",
+                "tool_calls": None,
+                "thinking": "",
+                "tool_result": None
+            }]
+        
+            self.logger.warning("Maximum tool call steps exceeded. Aborting generation to prevent infinite loop.")
+
     def generate_step(self, user_input:str, message_id=None):
         if user_input and user_input.strip() != "":
             self.messages.append({"role": "user", "content": user_input, "id": message_id})
@@ -294,6 +305,7 @@ class LocalAgent:
             model=self.model_name,
             messages=prompt_input_messages,
             stream=True,
+            think=True,
             tools= self.tools + self.async_tools,
             options={
                 "temperature": 0.6,
@@ -430,3 +442,91 @@ class LocalAgent:
 
         self.logger.info(f"[System] ✅ {peer_name} finished task.\n")
         return f"Response from {peer_name}:\n{final_content}"
+    
+    def get_default_tools(self):
+        def read_any_file(file_path: str, start_character: int = 0, end_character: int = 5000) -> str:
+            """
+            Tool to read the content of any file. Should end with .py extension.
+            Code files for available tools are Python scripts located in the 'framework/tools' directory.
+            Maximum character range to read is 5000 characters. To read beyond that, make multiple calls.
+            
+            Args:
+                file_path: The path of the code file to read.
+                            Example: "framework/tools/import_and_fastjet.py"
+                start_character: The starting character position to read from the utility code file.
+                end_character: The ending character position to read from the utility code file.
+            Returns:
+                The content of the utility code file as a string.
+            """
+            file_path = os.path.join(file_path)
+            warnings = []
+
+            supported_extensions = ('.py', '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.jsonl')
+            if not file_path.endswith(supported_extensions):
+                return f"Only {supported_extensions} code files are supported."
+
+            if end_character - start_character > 5000:
+                end_character = start_character + 5000  # Limit to 5000 characters
+                warnings.append("Reading limited to 5000 characters. To read more, make multiple calls with adjusted character ranges.")
+
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
+                    content = file.read()
+
+                if start_character < 0:
+                    start_character = 0
+                    warnings.append("Start character was less than 0. Adjusted to 0.")
+                
+                if end_character > len(content):
+                    end_character = len(content)
+                    warnings.append(f"End character exceeded file length. Adjusted to {len(content)}.")
+
+                content = content[start_character:end_character]
+
+                warning_message = "\n".join(warnings)
+                if warning_message:
+                    return f"File Contents:\n```{content}```\n\n Tool Warnings:\n{warning_message}"
+                else:
+                    return f"File Contents:\n```{content}```"
+            except FileNotFoundError:
+                return f"Code file '{file_path}' not found."
+            
+        def get_timestamp() -> str:
+            """
+            Tool to get the current timestamp.
+            Returns:
+                A string representing the current timestamp.
+            """
+            from datetime import datetime
+            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        def list_folders(folder_path: str) -> str:
+            """
+            Tool to list files in any specified folder in the current working directory.
+            Args:
+                folder_path: The path of the folder to list files from.
+            Returns:
+                A string listing the files in the specified folder.
+            """
+            full_folder_path = os.path.join(os.getcwd(), folder_path)
+            try:
+                files = os.listdir(full_folder_path)
+                return f"Files in '{folder_path}': {', '.join(files)}"
+            except FileNotFoundError:
+                return f"Directory '{folder_path}' not found."
+            
+        def check_if_file_exists(file_name: str) -> str:
+            """
+            Tool to check if a file exists in the system.
+            Args:
+                file_name: The name of the file to check.
+
+            Returns:
+                A string indicating whether the file exists or not.
+            """
+      
+            exists = os.path.exists(file_name)
+            return f"File '{file_name}' exists: {exists}"
+    
+        return [read_any_file, get_timestamp, list_folders, check_if_file_exists]
+   

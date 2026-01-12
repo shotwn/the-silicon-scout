@@ -10,19 +10,6 @@ from framework.tools.worker_tools import query_knowledge_base_tool, query_gemma_
 class OrchestratorAgent(LocalAgent):
     def get_tools(self):
         # Define specialized agents/tools here
-        def check_if_file_exists(file_name: str) -> str:
-            """
-            Tool to check if a file exists in the system.
-            Args:
-                file_name: The name of the file to check.
-
-            Returns:
-                A string indicating whether the file exists or not.
-            """
-      
-            exists = os.path.exists(file_name)
-            return f"File '{file_name}' exists: {exists}"
-
         def list_articles_directory():
             """
             Tool to list files in the 'articles' directory.
@@ -72,68 +59,6 @@ class OrchestratorAgent(LocalAgent):
             except FileNotFoundError:
                 return f"Article file '{file_name}' not found."
         
-        def list_folders(folder_path: str) -> str:
-            """
-            Tool to list files in any specified folder in the current working directory.
-            Args:
-                folder_path: The path of the folder to list files from.
-            Returns:
-                A string listing the files in the specified folder.
-            """
-            full_folder_path = os.path.join(os.getcwd(), folder_path)
-            try:
-                files = os.listdir(full_folder_path)
-                return f"Files in '{folder_path}': {', '.join(files)}"
-            except FileNotFoundError:
-                return f"Directory '{folder_path}' not found."
-        
-        def read_any_file(file_path: str, start_character: int = 0, end_character: int = 5000) -> str:
-            """
-            Tool to read the content of any file. Should end with .py extension.
-            Code files for available tools are Python scripts located in the 'framework/tools' directory.
-            Maximum character range to read is 5000 characters. To read beyond that, make multiple calls.
-            
-            Args:
-                file_path: The path of the code file to read.
-                            Example: "framework/tools/import_and_fastjet.py"
-                start_character: The starting character position to read from the utility code file.
-                end_character: The ending character position to read from the utility code file.
-            Returns:
-                The content of the utility code file as a string.
-            """
-            file_path = os.path.join(file_path)
-            warnings = []
-
-            supported_extensions = ('.py', '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.jsonl')
-            if not file_path.endswith(supported_extensions):
-                return f"Only {supported_extensions} code files are supported."
-
-            if end_character - start_character > 5000:
-                end_character = start_character + 5000  # Limit to 5000 characters
-                warnings.append("Reading limited to 5000 characters. To read more, make multiple calls with adjusted character ranges.")
-
-            try:
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
-                    content = file.read()
-
-                if start_character < 0:
-                    start_character = 0
-                    warnings.append("Start character was less than 0. Adjusted to 0.")
-                
-                if end_character > len(content):
-                    end_character = len(content)
-                    warnings.append(f"End character exceeded file length. Adjusted to {len(content)}.")
-
-                content = content[start_character:end_character]
-
-                warning_message = "\n".join(warnings)
-                if warning_message:
-                    return f"```python\n{content}\n```\nWarnings:\n{warning_message}"
-                else:
-                    return f"```python\n{content}\n```"
-            except FileNotFoundError:
-                return f"Code file '{file_path}' not found."
-        
         def delegate_to_analytics(instructions: str) -> str:
             """
             Delegates a physics analysis task to the Analytics Agent.
@@ -146,13 +71,11 @@ class OrchestratorAgent(LocalAgent):
             # Uses the generic method from the parent class
             return self.talk_to_peer("AnalyticsAgent", instructions)
 
-        
         tools = [
             delegate_to_analytics,
-            list_folders,
-            read_any_file,
-            check_if_file_exists,
         ]
+
+        tools += self.get_default_tools()
         
         return tools
     

@@ -25,22 +25,7 @@ class AnalyticsAgent(LocalAgent):
             isolation_forest_tool
         ]
 
-    def get_tools(self):
-        def list_folders(folder_path: str) -> str:
-            """
-            Tool to list files in any specified folder in the current working directory.
-            Args:
-                folder_path: The path of the folder to list files from.
-            Returns:
-                A string listing the files in the specified folder.
-            """
-            full_folder_path = os.path.join(os.getcwd(), folder_path)
-            try:
-                files = os.listdir(full_folder_path)
-                return f"Files in '{folder_path}': {', '.join(files)}"
-            except FileNotFoundError:
-                return f"Directory '{folder_path}' not found."
-    
+    def get_tools(self):    
         def report_to_orchestrator(reports: str):
             """
                 ! There is no need for this because orchestrator can directly read the output if it called us.
@@ -55,13 +40,6 @@ class AnalyticsAgent(LocalAgent):
 
             return "Report sent to Orchestrator Agent. No further response needed."
         
-        def get_timestamp() -> str:
-            """
-            Tool to get the current timestamp.
-            Returns:
-                A string representing the current timestamp.
-            """
-            from datetime import datetime
-            return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tools = self.get_default_tools()
 
-        return [list_folders, get_timestamp]
+        return tools
