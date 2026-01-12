@@ -208,6 +208,21 @@ class LaCATHODETrainer:
                          f"Load State={'True' if load else 'False'}")
         
         num_inputs = self.x_outer_train.shape[1]
+
+        # --- DYNAMIC LR CALCULATION ---
+        # This is new but I have to test because large batches can cause instability.
+        # Heuristic: Maintain constant gradient energy relative to a safe baseline.
+        # Baseline: Batch=256, Epochs=100 -> LR=1e-4
+        # Formula: New_LR = Baseline_Energy * (New_Batch / New_Epochs)
+        
+        # 1. Calculate the target LR
+        ref_energy = 1e-4 * (100.0 / 256.0) 
+        calculated_lr = ref_energy * (self.batch_size / epochs)
+        
+        # 2. Safety Clip (prevent explosion on massive batches)
+        calculated_lr = min(calculated_lr, 2e-3)
+        
+        print(f"Auto-Calculated LR: {calculated_lr:.2e} (Batch={self.batch_size}, Epochs={epochs})")
         
         self.flow_model = ConditionalNormalizingFlow(
             save_path=self.model_dir,
@@ -218,7 +233,7 @@ class LaCATHODETrainer:
             device=self.device,
             # FIX FOR UNSTABLE TRAINING ESPECIALLY ON BLACKBOXES - Anıl
             batch_norm=False,    # <--- CRITICAL: Disable the unstable legacy batch norm
-            lr=1e-5,             # <--- FORCE 1e-5. 1e-4 is still too fast for un-normalized data.
+            lr=calculated_lr,
             # FIX ENDS HERE 
             batch_size=self.batch_size
         )
@@ -402,18 +417,29 @@ class LaCATHODETrainer:
             self.log_toolout("Evaluation Skipped: No signal labels found in test set (Inference/Blackbox Mode).")
             self.log_toolout("This is expected. The model is trained and ready for the Oracle tool.")
             return
-
+        
         fpr, tpr, _ = roc_curve(y_clean, scores_clean)
         roc_auc = auc(fpr, tpr)
         
         self.log_toolout(f"\nResult: ROC AUC = {roc_auc:.4f}")
 
+        # --- DIAGNOSTIC LOGIC ---
         if roc_auc < 0.3:
-            self.log_toolout("Interpretation: CRITICAL FAILURE (Anti-Learning). AUC < 0.3 means the model is predicting the OPPOSITE of the truth.")
-            self.log_toolout("DIAGNOSIS: You likely have a 'Poisoned Sideband'. The actual anomaly is probably located in your Sideband (training data), not your Signal Region.")
+            self.log_toolout("CRITICAL WARNING: Anti-Learning (AUC < 0.3). Check for 'Poisoned Sideband'.")
+            self.log_toolout("The actual anomaly is probably located in your Sideband (training data), not your Signal Region.")
             self.log_toolout("RECOMMENDATION: Shift your Signal Region window LEFT or RIGHT to capture the anomaly inside the 'hole' (SR).")
-        elif roc_auc > 0.8:
-            self.log_toolout("Interpretation: Strong separation detected between Signal and Background.")
+        
+        elif roc_auc > 0.90:
+             # THIS IS THE NEW CHECK FOR YOUR SITUATION
+             self.log_toolout("CRITICAL WARNING: AUC > 0.90 indicates Flow Model Collapse.")
+             self.log_toolout("  > The classifier can perfectly distinguish Real Data from Synthetic Data.")
+             self.log_toolout("  > This means the Synthetic Data does not look like physics.")
+             self.log_toolout("  > RECOMMENDATION: Retrain Flow Model with lower LR or more epochs.")
+        
+        elif roc_auc > 0.6:
+             self.log_toolout("Interpretation: Good separation. Model is likely working.")
+        else:
+             self.log_toolout("Interpretation: Low separation. Signal might be too subtle or model needs tuning.")
         
         with np.errstate(divide='ignore', invalid='ignore'):
             sic = tpr / np.sqrt(fpr)
