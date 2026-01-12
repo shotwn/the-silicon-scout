@@ -20,7 +20,9 @@ parser.add_argument('--input_unlabeled', type=str, required=False,
 
 parser.add_argument('--output_dir', type=str, required=False,
                     default='./toolout/lacathode_input_data/',
-                    help='Output directory for LaCATHODE prepared data files')
+                    help='Output directory for LaCATHODE prepared data files. Job ID subdirectory will be created inside this path.')
+parser.add_argument('--job_id', type=str, required=True,
+                    help='Unique job ID for this run, used to create output subdirectory')
 
 parser.add_argument('--run_mode', type=str, choices=['training', 'inference'], default='training',
                     help='Run mode: "training" for preparing training/validation/test sets, "inference" for preparing unlabeled data for inference')
@@ -50,10 +52,6 @@ parser.add_argument('--tho_21_threshold', type=float, default=None,
                     help='Threshold for Tau2/1 ratio filtering (example feature)')
 
 args = parser.parse_args()
-
-GRAPHS_DIR = 'toolout/graphs/'
-if not os.path.exists(GRAPHS_DIR):
-    os.makedirs(GRAPHS_DIR, exist_ok=True)
 
 """
 Input data
@@ -96,7 +94,9 @@ class LaCATHODEPreperation:
         self.input_signal = args.get('input_signal')
         self.input_unlabeled = args.get('input_unlabeled')
 
-        self.output_dir = args.get('output_dir', './toolout/lacathode_input_data/')
+        self.job_id = args.get('job_id')
+        self.top_output_dir = args.get('output_dir', './toolout/lacathode_input_data/')
+        self.output_dir = os.path.join(self.top_output_dir, self.job_id)
 
         self.shuffle_seed = args.get('shuffle_seed', 42)
 
@@ -149,7 +149,7 @@ class LaCATHODEPreperation:
             raise ValueError(f"Signal Region definition too wide ({sr_width:.2f} TeV). Background estimation degrades if window > 1.0 TeV.")
 
         
-        self.tho_21_threshold = args.get('tho_21_threshold', None)  # Example threshold for Tau2/1 ratio filtering
+        self.tho_21_threshold = args.get('tho_21_threshold', None)  # for Tau2/1 ratio filtering
 
         self.feature_dictionary = lacathode_event_dictionary.tags
 
@@ -359,6 +359,11 @@ class LaCATHODEPreperation:
         else:
             plt.suptitle(f'Feature Distributions for {data_label}', fontsize=16)
 
+        save_dir = [top_dir]
+        if self.session_id:
+            save_dir.append(self.session_id)
+        if data_label:
+            save_dir.append(data_label)
         save_prefix = f'{self.session_id + "_" if self.session_id else ""}'
         save_to = os.path.join(GRAPHS_DIR, f'{save_prefix}feature_distribution_{data_label}.png')
         plt.savefig(save_to)

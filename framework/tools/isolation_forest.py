@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.ensemble import IsolationForest
@@ -19,6 +20,9 @@ parser.add_argument('--input_signal', type=str, required=False,
 # Inference Mode Inputs (Unlabeled)
 parser.add_argument('--input_unlabeled', type=str, required=False, 
                     help="Path to unlabeled_events.jsonl (Real Data Mode)")
+
+# Tracking
+parser.add_argument('--job_id', type=str, default=None, help="Job ID for tracking outputs")
 
 # Hyperparameters
 parser.add_argument("--n_estimators", type=int, default=100, help="Number of trees")
@@ -269,18 +273,20 @@ def main():
 
         plt.tight_layout()
         
+        save_dir = ['toolout', 'graphs', 'iforest']
         session_id = os.environ.get("FRAMEWORK_SESSION_ID", None)
         if session_id:
-            save_path = f"./toolout/graphs/{session_id}_iforest_score_distribution.png"
-        else:
-            save_path = f"./toolout/graphs/iforest_score_distribution.png"
+            save_dir.append(f"session {session_id}")
+        
+        if args.job_id:
+            save_dir.append(f"job {args.job_id}")
+        
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        save_path = os.path.join(*save_dir, f"isolation_forest_analysis_{timestamp}.png")
+
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-        suptitle_prefix = ""
-        if session_id:
-            suptitle_prefix = f"{session_id} "
-
-        plt.suptitle(f"{suptitle_prefix}Isolation Forest Anomaly Detection Results", fontsize=16, y=1.02)
+        plt.suptitle("Isolation Forest Anomaly Detection Results", fontsize=16, y=1.02)
 
         plt.savefig(save_path)
         print(f"Detailed physics profile plot saved to {save_path}")

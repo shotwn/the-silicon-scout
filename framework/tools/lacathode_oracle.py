@@ -178,6 +178,36 @@ class LaCATHODEOracle:
         self.add_tool_out(f"Successfully done. Scores saved to: {output_path}")
         self.add_tool_out(f"Mean Score: {np.nanmean(final_scores):.4f} (Higher > 0.5 = More Anomalous)")
 
+        # For p score calculation and visualizations
+        print("Generating Synthetic Background...")
+        try:
+            oversample = 10
+            n_synth = len(data) * oversample
+            
+            # Generate Pure Gaussian Noise (using dimensions from inference)
+            n_dims = z_inference.shape[1]
+            z_synth = np.random.randn(n_synth, n_dims).astype(np.float32)
+            
+            # Scale and Score
+            z_synth_scaled = self.latent_scaler.transform(z_synth)
+            scores_synth = self.classifier.predict(z_synth_scaled).flatten()
+            
+            # Associate with Masses (Assuming background follows data distribution)
+            masses_tiled = np.tile(data[:, 0], oversample)
+            
+            # Save [Mass, Score] pair
+            synth_data = np.column_stack((masses_tiled, scores_synth))
+            
+            base, ext = os.path.splitext(scores_file_path)
+            synth_path = f"{base}_synthetic{ext}"
+            
+            np.save(synth_path, synth_data)
+            self.add_tool_out(f"Generated {n_synth} synthetic background events.")
+            self.add_tool_out(f"Saved synthetic reference to: {synth_path}. You do not need to read or use this file directly.")
+
+        except Exception as e:
+            self.add_tool_out(f"WARNING: Synthetic generation failed: {e}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LaCATHODE Oracle Inference")

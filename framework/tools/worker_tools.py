@@ -14,6 +14,14 @@ def get_project_root_env():
     without needing relative path hacks.
     """
     env = os.environ.copy()
+
+    # Load session ID manually in case wroker runs standalone
+    session_id_file = 'session_counter.txt'
+    if os.path.isfile(session_id_file):
+        with open(session_id_file, 'r') as f:
+            session_id = f.read().strip()
+            env["FRAMEWORK_SESSION_ID"] = session_id
+
     # Add CWD to PYTHONPATH so 'import framework' works in subprocesses
     env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
     return env
@@ -22,8 +30,8 @@ def fastjet_tool(
     input_file: str,
     numpy_read_chunk_size: int | None = None,
     size_per_row: int | None = None,
-    output_dir: str | None = None,
-    min_pt: float | None = 30.0,
+    output_dir: str | None = 'toolout/fastjet-output/',
+    reconstruction_min_pT: float | None = 30.0,
     no_label_input: bool = False,
 ):
     """
@@ -32,26 +40,28 @@ def fastjet_tool(
     This is the **Reconstruction Step**. It groups raw particle hits into Jets.
     
     CRITICAL PHYSICS NOTE - DO NOT CONFUSE pT THRESHOLDS:
-    - `min_pt` (Arg here): This is the **Reconstruction Threshold**. It sets the floor for the *smallest jet* to save.
-      -> **KEEP IT LOW (e.g., 30.0 GeV).**
-      -> If you set this high (e.g., 1000 GeV), you will delete the softer 2nd jet and destroy the event's substructure.
-      
-    - Trigger Threshold (Analysis Step): This is the event-level cut (e.g., 1200 GeV) applied *later* to select interesting events.
-      -> Do NOT apply the trigger cut in this tool.
+    - `reconstruction_min_pT` (Arg here): This is the **Reconstruction Threshold**. It sets the floor for the *smallest jet* to save.
+      **KEEP IT LOW (e.g., 30.0 GeV).**
+      If you set this high (e.g., 1000 GeV), you will delete the softer 2nd jet and destroy the event's substructure.  
+    - Trigger Threshold is set LATER in the analysis in an another tool (Region Proposer tool) and is typically MUCH HIGHER (e.g., 1200 GeV).
     
     Files will be saved in output_dir:
     - R&D (Labeled): `background_events.jsonl`, `signal_events.jsonl`
     - Blackbox (Unlabeled): `unlabeled_events.jsonl`
 
+    Do not modify default parameters unless you have a specific reason.
+
     Args:
         input_file: Path to input .h5 file.
-        output_dir: Directory to save processed JSONL files.
-        min_pt: Minimum pT (GeV) for a RECONSTRUCTED jet. Default 30.0. 
-                Keep this low (< 50 GeV) to preserve jet substructure.
+        output_dir: To change the default directory to save processed JSONL files. (optional) 
+                    Do not set this unless absolutely necessary. Because it might break caching systems in place.
+                    Default is 'toolout/fastjet-output/'.
         no_label_input: Set True for Blackbox/Real data (ignores missing 'label' column).
                         Set False (default) for R&D data to split Signal/Background.
-        numpy_read_chunk_size: Memory chunk size (advanced).
-        size_per_row: H5 row stride (advanced).
+        reconstruction_min_pT: Minimum pT (GeV) for a RECONSTRUCTED jet. Default 30.0. 
+                Keep this low (< 50 GeV) to preserve jet substructure. (optional)
+        numpy_read_chunk_size: Memory chunk size (advanced) (optional).
+        size_per_row: H5 row stride (advanced) (optional).
     """
     
     if input_file is None:
@@ -69,8 +79,8 @@ def fastjet_tool(
         command += ["--size_per_row", str(size_per_row)]
     if output_dir is not None:
         command += ["--output_dir", output_dir]
-    if min_pt is not None:
-        command += ["--min_pt", str(min_pt)]
+    if reconstruction_min_pT is not None:
+        command += ["--min_pt", str(reconstruction_min_pT)]
     if no_label_input:
         command += ["--no_label_input"]
 
@@ -91,9 +101,12 @@ def propose_signal_regions_tool(
     input_background: str | None = None,
     input_signal: str | None = None,
     input_unlabeled: str | None = None,
+    job_id: str | None = None,
     # Updated CATHODE-style Scan Parameters
-    scan_start: float = 2000.0,
-    scan_stop: float = 6000.0,
+    data_pool_min: float = 2000.0,
+    data_pool_max: float = 8000.0,
+    scan_range_start: float = 2500.0,
+    scan_range_stop: float = 7500.0,
     window_width: float = 400.0,
     step_size: float = 200.0,
     trigger_threshold_pt: float = 1200.0,
@@ -115,8 +128,15 @@ def propose_signal_regions_tool(
         input_background: Path to background data file (JSONL or NPY).
         input_signal: Path to signal data file (JSONL or NPY).
         input_unlabeled: Path to unlabeled data file (JSONL or NPY).
-        scan_start: The START of the global analysis range in GeV (default: 2000).
-        scan_stop: The END of the global analysis range in GeV (default: 6000).
+        job_id: Unique identifier for this run (optional, for output organization).
+        data_pool_min: The absolute floor of your dataset in GeV (e.g., 2000). 
+                       This is used to define the 'Left Sideband'.
+        data_pool_max: The absolute ceiling of your dataset in GeV (e.g., 8000). 
+                       This is used to define the 'Right Sideband'.
+        scan_range_start: Where the FIRST Signal Region window should start its left edge.
+                          Must be > (data_pool_min + 500) to allow for sidebands.
+        scan_range_stop: Where the LAST Signal Region window should end its right edge.
+                         Must be < (data_pool_max - 500) to allow for sidebands.
         window_width: The width of the Signal Region (hole) in GeV (default: 400).
         step_size: The shift step for the scan in GeV (default: 200).
         trigger_threshold_pt: The hardware trigger threshold (default 1200.0 GeV). 
@@ -132,8 +152,10 @@ def propose_signal_regions_tool(
     command = [
         f"{sys.executable}",
         "framework/tools/region_proposer.py",
-        "--global_start", str(scan_start),
-        "--global_stop", str(scan_stop),
+        "--data_pool_min", str(data_pool_min),
+        "--data_pool_max", str(data_pool_max),
+        "--scan_range_start", str(scan_range_start),
+        "--scan_range_stop", str(scan_range_stop),
         "--window_width", str(window_width),
         "--step_size", str(step_size),
         "--trigger_threshold_pt", str(trigger_threshold_pt),
@@ -145,6 +167,8 @@ def propose_signal_regions_tool(
         command += ["--input_signal", input_signal]
     if input_unlabeled:
         command += ["--input_unlabeled", input_unlabeled]
+    if job_id:
+        command += ["--job_id", job_id]
 
     logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
@@ -158,7 +182,7 @@ def propose_signal_regions_tool(
     return result.stdout
   
 def lacathode_preparation_tool(
-    run_id: str,
+    job_id: str,
     run_mode: str = 'training',
     input_background: str | None = None,
     input_signal: str | None = None,
@@ -167,11 +191,11 @@ def lacathode_preparation_tool(
     shuffle_seed: int | None = None,
     training_fraction: float | None = None,
     validation_fraction: float | None = None,
-    scan_start_mass: float | None = 2.0,
+    data_pool_min: float | None = 2.0,
     min_mass_signal_region: float | None = 3.3,
     max_mass_signal_region: float | None = 3.7,
-    scan_end_mass: float | None = 5.0,
-    tho_21_threshold: float | None = None,
+    data_pool_max: float | None = 5.0,
+    # tho_21_threshold: float | None = None, Disabled until further testing
 ):
     """
     Prepares data for LaCATHODE training by defining the Signal Region (SR) and Sidebands (SB).
@@ -187,29 +211,29 @@ def lacathode_preparation_tool(
        You must ensure enough SB data exists on *both sides* of the SR to anchor the fit.
 
        Constraint A (Left Anchor >= 0.5 TeV):
-         `scan_start_mass` <= `min_mass_signal_region` - 0.5
+         `data_pool_min` <= `min_mass_signal_region` - 0.5
        
        Constraint B (Right Anchor >= 0.5 TeV):
-         `scan_end_mass`   >= `max_mass_signal_region` + 0.5
+         `data_pool_max`   >= `max_mass_signal_region` + 0.5
        
        Constraint C (SR Width 0.2-1.2 TeV):
          0.2 <= (`max_mass_signal_region` - `min_mass_signal_region`) <= 1.2
 
     3. EXAMPLE VALID CONFIGURATION:
        Target SR: 3.3 to 3.7 TeV.
-       Left Anchor Limit:  3.3 - 0.5 = 2.8 (Set scan_start_mass <= 2.8)
-       Right Anchor Limit: 3.7 + 0.5 = 4.2 (Set scan_end_mass >= 4.2)
+       Left Anchor Limit:  3.3 - 0.5 = 2.8 (Set data_pool_min <= 2.8)
+       Right Anchor Limit: 3.7 + 0.5 = 4.2 (Set data_pool_max >= 4.2)
 
     Args:
-        run_id: Unique string ID for the output directory.
+        job_id: Unique string ID which effects the output directory.
         run_mode: 'training' (labeled) or 'inference' (unlabeled).
         input_background: Path to background events (Training only).
         input_signal: Path to signal events (Training only).
         input_unlabeled: Path to unlabeled events (Inference only).
-        scan_start_mass: Global Start (SB Min) in TeV.
+        data_pool_min: Global Start (SB Min) in TeV.
         min_mass_signal_region: Signal Region Start in TeV.
         max_mass_signal_region: Signal Region End in TeV.
-        scan_end_mass: Global End (SB Max) in TeV.
+        data_pool_max: Global End (SB Max) in TeV.
     """
     
     # min_mass and max_mass defaults were hidden on purpose to force LLM change them run to run properly.
@@ -227,10 +251,11 @@ def lacathode_preparation_tool(
     command = [
         f"{sys.executable}",
         "framework/tools/lacathode_preperation.py",
-        "--run_mode", run_mode
+        "--run_mode", run_mode,
+        "--job_id", job_id,
     ]
 
-    output_dir = f"toolout/lacathode_prepared_data/{run_id}/"
+    output_dir = f"toolout/lacathode_prepared_data" # Job ID will be appended inside the tool
 
     # Add optional arguments if they exist
     if input_background:
@@ -247,16 +272,18 @@ def lacathode_preparation_tool(
         command += ["--training_fraction", str(training_fraction)]
     if validation_fraction is not None:
         command += ["--validation_fraction", str(validation_fraction)]
-    if scan_start_mass is not None:
-        command += ["--side_band_min", str(scan_start_mass)]
+    if data_pool_min is not None:
+        command += ["--side_band_min", str(data_pool_min)]
     if min_mass_signal_region is not None:
         command += ["--min_mass", str(min_mass_signal_region)]
     if max_mass_signal_region is not None:
         command += ["--max_mass", str(max_mass_signal_region)]
-    if scan_end_mass is not None:
-        command += ["--side_band_max", str(scan_end_mass)]
+    if data_pool_max is not None:
+        command += ["--side_band_max", str(data_pool_max)]
+    """ Disabled until further testing
     if tho_21_threshold is not None:
         command += ["--tho_21_threshold", str(tho_21_threshold)]
+    """
 
 
     logger.info((f"Executing command: {' '.join(command)}"))
@@ -274,7 +301,7 @@ def lacathode_preparation_tool(
     
 
 def lacathode_training_tool(
-    run_id: str,
+    job_id: str,
     data_dir: str,
     load_flow: bool = False,
     load_classifier: bool = False,
@@ -297,8 +324,8 @@ def lacathode_training_tool(
     Expense is 20-40 GPU minutes for large datasets.
     
     Args:
-        run_id: Unique identifier for the run. Determines the output directory. 
-                You can use the same run_id as used in preparation step. Unless you make a new run. (required)
+        job_id: Unique identifier for the run. Determines the output directory. 
+                You can use the same job_id as used in preparation step. Unless you make a new run. (required)
         data_dir: Directory containing prepared data from LaCATHODE preparation tool. (required)
         load_flow: If True, loads an existing Flow model from model_dir instead of retraining. 
                    Useful if the Flow is already good and you only want to retrain the classifier.
@@ -317,7 +344,7 @@ def lacathode_training_tool(
         "framework/tools/lacathode_trainer.py",
     ]
 
-    model_dir = f"toolout/lacathode_trained_models/{run_id}/"
+    model_dir = f"toolout/lacathode_trained_models/{job_id}/"
 
     if data_dir:
         command += ["--data_dir", data_dir]
@@ -350,7 +377,7 @@ def lacathode_training_tool(
     
 def lacathode_oracle_tool(
     inference_file: str,
-    run_id: str,
+    job_id: str,
     data_dir: str | None = None,
     model_dir: str | None = None,
 ):
@@ -367,22 +394,22 @@ def lacathode_oracle_tool(
     
     Args:
         inference_file: Path to the data file to predict on. 
-                        e.g. 'toolout/lacathode_prepared_data/{run_id}/innerdata_combined.npy'
-        run_id: The ID of the run (e.g., 'run_001'). Used to locate models and save outputs.
+                        e.g. 'toolout/lacathode_prepared_data/{job_id}/innerdata_combined.npy'
+        job_id: The ID of the run (e.g., 'run_001'). Used to locate models and save outputs.
         data_dir: (Optional) Override path to original training data. 
-                  Defaults to 'toolout/lacathode_prepared_data/{run_id}/'.
+                  Defaults to 'toolout/lacathode_prepared_data/{job_id}/'.
         model_dir: (Optional) Override path to trained models.
-                   Defaults to 'toolout/lacathode_trained_models/{run_id}/'.
+                   Defaults to 'toolout/lacathode_trained_models/{job_id}/'.
     """
     
     if not inference_file:
         raise ValueError("Error: inference_file is a required argument.")
 
-    # 1. Infer Paths from run_id if not provided
+    # 1. Infer Paths from job_id if not provided
     if data_dir is None:
-        data_dir = f"toolout/lacathode_prepared_data/{run_id}/"
+        data_dir = f"toolout/lacathode_prepared_data/{job_id}/"
     if model_dir is None:
-        model_dir = f"toolout/lacathode_trained_models/{run_id}/"
+        model_dir = f"toolout/lacathode_trained_models/{job_id}/"
 
     command = [
         f"{sys.executable}",
@@ -416,7 +443,8 @@ def lacathode_oracle_tool(
 def lacathode_report_generator_tool(
     data_file: str | None = None,
     scores_file: str | None = None,
-    output_file: str | None = None,
+    output_dir: str | None = 'toolout/reports',
+    report_id: str | None = None,
     top_percentile: float | None = None,
     bin_count: int | None = None,
     min_events_per_bin: int | None = None,
@@ -435,7 +463,8 @@ def lacathode_report_generator_tool(
     Args:
         data_file: Path to the input data file (numpy .npy format). 
         scores_file: Path to the anomaly scores file (numpy .npy format).
-        output_file: Path to save the generated report (default "llm_enhanced_report.txt").
+        output_dir: Directory to save the generated report folder (default 'toolout/reports').
+        report_id: Optional identifier to include in the report filename.
         top_percentile: Percentile threshold to define anomaly candidates. Default 99.0 But you can experiment.
         bin_count: Number of bins for mass histogram. Default 18 But you can experiment.
         min_events_per_bin: Minimum events required in a bin to calculate excess factor (filters noise). Default 200.
@@ -454,8 +483,10 @@ def lacathode_report_generator_tool(
         "--scores_file", scores_file,
     ]
 
-    if output_file:
-        command += ["--output_file", output_file]
+    if output_dir:
+        command += ["--output_dir", output_dir]
+    if report_id:
+        command += ["--report_id", report_id]
     if top_percentile is not None:
         command += ["--top_percentile", str(top_percentile)]
     if bin_count is not None:
@@ -567,6 +598,7 @@ def isolation_forest_tool(
     input_background: str | None = None,
     input_signal: str | None = None,
     input_unlabeled: str | None = None,
+    job_id: str | None = None,
     region_start: float | None = None,
     region_end: float | None = None,
     contamination: str = "auto",
@@ -590,6 +622,7 @@ def isolation_forest_tool(
         input_background: Path to background_events.jsonl (R&D Mode).
         input_signal: Path to signal_events.jsonl (R&D Mode).
         input_unlabeled: Path to unlabeled_events.jsonl (Real Data Mode).
+        job_id: Unique identifier for this run (optional, for output organization).
         region_start: Start of the focused mass window in TeV (e.g., 3.3). HIGHLY RECOMMENDED to avoid tail bias.
         region_end: End of the focused mass window in TeV (e.g., 3.7).
         contamination: Expected anomaly fraction (default "auto").
@@ -620,6 +653,8 @@ def isolation_forest_tool(
         command += ["--region_end", str(region_end)]
     if plot:
         command += ["--plot"]
+    if job_id:
+        command += ["--job_id", job_id]
 
     logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
