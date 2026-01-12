@@ -11,7 +11,8 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="qwen3:14b", help="Ollama model name")
     parser.add_argument("--cache-tools", type=str, nargs='*', default=[], help="List of tool names to cache results for (for debugging). Use '*' to cache all tools.")
     parser.add_argument("--list-tools", action="store_true", dest="list_tools", help="List available tools and exit", default=False)
-
+    parser.add_argument("--clean-old-jobs", type=str, default="false", help="If 'true', deletes all completed jobs except cached tools on startup. If 'all', deletes all completed jobs including cache.")
+    parser.add_argument("--clean-pending", action="store_true", dest="clean_pending", help="If set, deletes all pending jobs on startup.", default=False)
     args = parser.parse_args()
 
     if args.list_tools:
@@ -46,4 +47,4 @@ if __name__ == "__main__":
         if not worker_only:
             start_up_bot(args.resume)
 
-        run_worker(cache_tools=args.cache_tools)
+        run_worker(cache_tools=args.cache_tools, clean_old_jobs=args.clean_old_jobs, clean_pending=args.clean_pending)
