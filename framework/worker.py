@@ -146,7 +146,7 @@ def find_cached_result(tool_name, tool_args):
             
     return None
 
-def run_worker(cache_tools=[]):
+def run_worker(cache_tools=[], clean_old_jobs: str | bool=False, clean_pending: bool=False):
     """
     Main worker loop that monitors the pending jobs directory,
     executes tools, and saves results.
@@ -158,11 +158,48 @@ def run_worker(cache_tools=[]):
     in the completed jobs directory and reuses results if found.
     
     :param cache_tools: List of tool names for which caching is enabled. Use ['*'] or ['all'] to enable for all tools.
+    :param clean_old_jobs: If True, deletes all completed jobs EXCEPT cache_tools on startup.
+                           If 'all', deletes all completed jobs including cache.
+    :param clean_pending: If True, deletes all pending jobs on startup.
     """
     logger.info("Worker started. Monitoring jobs/pending/ ...")
 
     if cache_tools:
         logger.info(f"Worker: Debug Cache Mode ENABLED for tools: {cache_tools}")
+
+    if clean_old_jobs == True:
+        logger.info("Cleaning old completed jobs...")
+        for fname in os.listdir(COMPLETED_DIR):
+            fpath = os.path.join(COMPLETED_DIR, fname)
+            try:
+                with open(fpath, "r") as f:
+                    data = json.load(f)
+                tool_name = data.get("original_state", {}).get("tool_name", "")
+                if tool_name not in cache_tools and '*' not in cache_tools and 'all' not in cache_tools:
+                    os.remove(fpath)
+                    logger.info(f"Worker: Deleted completed job {fname}")
+            except (json.JSONDecodeError, OSError):
+                continue
+        
+        if clean_old_jobs == 'all':
+            logger.info("Cleaning cache jobs as well...")
+            for fname in os.listdir(COMPLETED_DIR):
+                fpath = os.path.join(COMPLETED_DIR, fname)
+                try:
+                    os.remove(fpath)
+                    logger.info(f"Worker: Deleted completed job {fname}")
+                except OSError:
+                    continue
+        
+    if clean_pending:
+        logger.info("Cleaning old pending jobs...")
+        for fname in os.listdir(PENDING_DIR):
+            fpath = os.path.join(PENDING_DIR, fname)
+            try:
+                os.remove(fpath)
+                logger.info(f"Worker: Deleted pending job {fname}")
+            except OSError:
+                continue
 
     while True:
         try:
