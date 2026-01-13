@@ -283,13 +283,15 @@ class Framework:
         
         return (full_history, gr.update(interactive=interactive_state, placeholder=placeholder_text))
 
-    def export_all_histories(self):
+    def export_all_histories(self, dir="exports", with_timestamp=True):
         """
         Dumps the full message history of all agents to a JSON file for download.
         """
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join("exports", f"session_history_{self.session_id}.{timestamp}.json")
-        os.makedirs("exports", exist_ok=True)
+        export_directory = os.path.join(dir, self.session_id)
+        export_filename = f"session_history.{timestamp}.json" if with_timestamp else "session_history.json"
+        filename = os.path.join(export_directory, export_filename)
+        os.makedirs(export_directory, exist_ok=True)
         
         # Collect data
         export_data = {
@@ -305,7 +307,7 @@ class Framework:
             export_data["agents"][name] = agent.messages
             
         # Write to file
-        with open(filename, "w", encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(export_data, f, indent=2)
             
         return filename
@@ -379,6 +381,9 @@ class Framework:
             self.logger.error(f"Background worker crashed: {e}")
             self.logger.error(traceback.format_exc())
         finally:
+            # Always log the session state after processing
+            logout_dir = os.path.join("logs", "sessions") # Session id appended later
+            self.export_all_histories(with_timestamp=False, dir=logout_dir)
             self.is_processing = False
     
     def chat_function(self, user_input):

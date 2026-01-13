@@ -388,9 +388,14 @@ class LocalAgent:
         self.logger.info(f"> Sending request to Ollama ({self.model_name}) --->")
         
         # Log prompt
-        os.makedirs("debug_logs", exist_ok=True)
+        log_root_dir = os.path.join("logs")
         current_time = time.strftime("%Y%m%d_%H%M%S")
-        with open(f"debug_logs/debug_prompt_{current_time}.json", "w", encoding='utf-8') as f:
+        session_id = os.environ.get("FRAMEWORK_SESSION_ID", "default_session")
+        prompt_dir = os.path.join(log_root_dir, "prompts", session_id)
+        if not os.path.exists(prompt_dir):
+            os.makedirs(prompt_dir, exist_ok=True)
+
+        with open(f"{prompt_dir}/prompt_{current_time}.json", "w", encoding="utf-8") as f:
             json.dump(prompt_input_messages, f, indent=2)
 
         # Call Ollama API with streaming
@@ -421,7 +426,6 @@ class LocalAgent:
         }
 
         def serialize_response(resp):
-
             return {
                 "role": resp["role"],
                 "content": resp["content"],
@@ -499,7 +503,11 @@ class LocalAgent:
         serialized_response = self.messages[current_msg_index]
 
         # Log response
-        with open(f"debug_logs/debug_response_{current_time}.txt", "w", encoding='utf-8') as f:
+        response_logs_dir = os.path.join(log_root_dir, "responses", session_id)
+        if not os.path.exists(response_logs_dir):
+            os.makedirs(response_logs_dir, exist_ok=True)
+            
+        with open(f"{response_logs_dir}/response_{current_time}.txt", "w", encoding="utf-8") as f:
             f.write(json.dumps(serialized_response, indent=2))
 
         yield serialized_response
