@@ -167,18 +167,21 @@ def run_worker(cache_tools=[], clean_old_jobs: str | bool=False, clean_pending: 
     if cache_tools:
         logger.info(f"Worker: Debug Cache Mode ENABLED for tools: {cache_tools}")
 
-    if clean_old_jobs == True:
+    if clean_old_jobs:
         logger.info("Cleaning old completed jobs...")
+
         for fname in os.listdir(COMPLETED_DIR):
             fpath = os.path.join(COMPLETED_DIR, fname)
             try:
                 with open(fpath, "r") as f:
                     data = json.load(f)
                 tool_name = data.get("original_state", {}).get("tool_name", "")
+
                 if tool_name not in cache_tools and '*' not in cache_tools and 'all' not in cache_tools:
                     os.remove(fpath)
                     logger.info(f"Worker: Deleted completed job {fname}")
             except (json.JSONDecodeError, OSError):
+                logger.warning(f"Worker: Could not read completed job {fname}, skipping deletion.")
                 continue
         
         if clean_old_jobs == 'all':
