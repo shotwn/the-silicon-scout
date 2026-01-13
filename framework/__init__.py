@@ -1,3 +1,4 @@
+import traceback
 import gradio as gr
 import json
 import uuid
@@ -11,6 +12,7 @@ from dotenv import load_dotenv
 # Removed transformers imports
 # from transformers import ... 
 
+from framework.local_agent import LocalAgent
 from framework.orchestrator_agent import OrchestratorAgent
 from framework.analytics_agent import AnalyticsAgent
 from framework.tools.gemma_client import get_runtime_history_file
@@ -36,8 +38,8 @@ class Framework:
         # Initialize RAG Engine
         self.rag_engine_enabled = True
 
-        # Initial messages per agent
-        self.default_initial_messages = {
+        # System messages per agent
+        self.persistent_messages = {
             "OrchestratorAgent": [
                 {
                     "role": "system", 
@@ -131,7 +133,7 @@ class Framework:
         self.orchestrator_agent = OrchestratorAgent(
             model_name=self.base_model_name, # Changed arg name
             # tokenizer=self.tokenizer,      # Removed
-            initial_messages=self.get_initial_messages(
+            persistent_messages=self.get_persistent_messages(
                 agent="OrchestratorAgent"
             ),
             rag_engine_enabled=self.rag_engine_enabled,
@@ -140,7 +142,7 @@ class Framework:
         self.analytics_agent = AnalyticsAgent(
             model_name=self.base_model_name, # Changed arg name
             # tokenizer=self.tokenizer,      # Removed
-            initial_messages=self.get_initial_messages(
+            persistent_messages=self.get_persistent_messages(
                 agent="AnalyticsAgent"
             ),
             rag_engine_enabled=self.rag_engine_enabled,
@@ -151,7 +153,7 @@ class Framework:
         self.analytics_agent.register_peer('OrchestratorAgent', self.orchestrator_agent)
 
         # Register agents to framework
-        self.agents = {
+        self.agents: dict[str, LocalAgent] = {
             "OrchestratorAgent": self.orchestrator_agent,
             "AnalyticsAgent": self.analytics_agent,
         }
@@ -207,8 +209,8 @@ class Framework:
 
         return session_id
 
-    def get_initial_messages(self, agent):
-        return self.default_initial_messages.get(agent, [])
+    def get_persistent_messages(self, agent):
+        return self.persistent_messages.get(agent, [])
 
     def trigger_forced_resume(self, job_id):
         """Loads state from a completed job file to resume."""
@@ -329,7 +331,11 @@ class Framework:
             loaded_count = 0
             for agent_name, messages in data["agents"].items():
                 if agent_name in self.agents:
-                    self.agents[agent_name].messages = messages
+                    agent = self.agents[agent_name]
+                    agent.flush_messages()  # Clear existing messages
+                    for message in messages:
+                        agent.append_message(**message)
+
                     loaded_count += 1
                     self.logger.info(f"Restored {len(messages)} messages for {agent_name}.")
                 else:
@@ -371,6 +377,7 @@ class Framework:
                 for _ in gen: pass
         except Exception as e:
             self.logger.error(f"Background worker crashed: {e}")
+            self.logger.error(traceback.format_exc())
         finally:
             self.is_processing = False
     
@@ -443,7 +450,10 @@ class Framework:
                                     label="Orchestrator",
                                     scale=1,
                                     autoscroll=False,
-                                    latex_delimiters=[("$$", "$$"), ("$", "$")],
+                                    latex_delimiters=[
+                                        {"left": "$$", "right": "$$", "display": True},
+                                        {"left": "$", "right": "$", "display": False},
+                                    ],
                                 )
                             
                             with gr.Column(scale=1):
@@ -454,7 +464,7 @@ class Framework:
                                     label="Analytics",
                                     scale=1,
                                     autoscroll=False,
-                                    latex_delimiters=[("$$", "$$"), ("$", "$")],
+                                    #latex_delimiters=[("$$", "$$"), ("$", "$")],
                                 )
 
                         with gr.Row(scale=0):
