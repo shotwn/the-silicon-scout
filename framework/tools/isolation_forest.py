@@ -1,3 +1,16 @@
+"""
+Standalone Isolation Forest Tool for FastJet Events
+--------------------------------------------------
+This script implements an Isolation Forest anomaly detection algorithm
+tailored for FastJet JSONL event data. It supports both R&D benchmarking
+and real data inference modes.
+
+It is build upon sklearn's IsolationForest and includes detailed reporting
+and visualization features to aid in interpreting the results.
+
+Code is a little bit of spaghetti, due time constraints, but it works!
+--------------------------------------------------
+"""
 import argparse
 import os
 import json

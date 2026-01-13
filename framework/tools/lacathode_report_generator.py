@@ -278,7 +278,11 @@ def plot_synthetic_validation(
     ax1.set_ylabel("Obs / Pred", fontsize=10)
     ax1.set_xlabel("Invariant Mass (GeV)", fontsize=12)
     ax1.grid(True, linestyle='--', alpha=0.4)
-    ax1.set_ylim(0, 2.5) 
+    ax1.set_ylim(0, 2.5)
+    
+    # Format x-axis to show mass values clearly
+    ax1.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+    ax1.tick_params(axis='x', labelsize=10, rotation=0)
 
     if os.path.dirname(save_path):
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
