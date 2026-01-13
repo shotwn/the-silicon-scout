@@ -250,9 +250,20 @@ def main():
         # Increased size for better readability and space for the Info Panel
         plt.figure(figsize=(14, 10))
         
-        # Plot 1: Score Distribution
+        # Plot 1: Score Distribution - ADD REGION-SPECIFIC SCORES
         plt.subplot(2, 2, 1)
         plt.hist(scores, bins=50, density=True, alpha=0.7, color='steelblue', label='All Events')
+        
+        # Highlight scores from the focused region
+        if args.region_start is not None and args.region_end is not None:
+            r_start_gev = args.region_start * 1000
+            r_end_gev = args.region_end * 1000
+            mask_region = (X[:, 0] >= r_start_gev) & (X[:, 0] <= r_end_gev)
+            if np.sum(mask_region) > 0:
+                scores_in_region = scores[mask_region]
+                plt.hist(scores_in_region, bins=50, density=True, alpha=0.7, 
+                        color='orange', label=f'Region Events ({args.region_start}-{args.region_end} TeV)')
+        
         plt.axvline(threshold, color='crimson', linestyle='--', linewidth=2, label='Anomaly Cut (Top 1%)')
         plt.title("1. Anomaly Score Distribution", fontsize=12, fontweight='bold')
         plt.xlabel("Anomaly Score (Higher is more anomalous)")
@@ -260,21 +271,61 @@ def main():
         plt.legend()
         plt.grid(True, alpha=0.3, linestyle='--')
         
-        # Plot 2: Mass Profile
+        # Plot 2: Mass Profile - ENHANCED WITH SHADED REGION
         plt.subplot(2, 2, 2)
         plt.hist(normal[:, 0], bins=50, density=True, alpha=0.5, color='gray', label='Normal (99%)', range=(0, 6000))
         plt.hist(anomalies[:, 0], bins=50, density=True, alpha=0.6, color='crimson', label='Anomalies (Top 1%)', range=(0, 6000))
+        
+        # Add shaded region to highlight the search zone
+        if args.region_start is not None and args.region_end is not None:
+            plt.axvspan(args.region_start * 1000, args.region_end * 1000, 
+                       alpha=0.2, color='gold', label='Search Region', zorder=0)
+            plt.axvline(args.region_start * 1000, color='orange', linestyle='--', linewidth=2)
+            plt.axvline(args.region_end * 1000, color='green', linestyle='--', linewidth=2)
+        
         plt.title("2. Invariant Mass ($m_{jj}$) Profile", fontsize=12, fontweight='bold')
         plt.xlabel("Invariant Mass [GeV]")
         plt.ylabel("Density (Normalized)")
         plt.legend()
         plt.grid(True, alpha=0.3, linestyle='--')
-        
-        # Plot 3: Substructure (Tau21)
+
+        # Plot 3: Substructure (Tau21) - FILTER TO REGION ONLY
         plt.subplot(2, 2, 3)
-        plt.hist(normal[:, 6], bins=30, density=True, alpha=0.5, color='gray', label='Normal (Background-like)', range=(0,1))
-        plt.hist(anomalies[:, 6], bins=30, density=True, alpha=0.6, color='crimson', label='Anomalies (Candidates)', range=(0,1))
-        plt.title("3. Jet Substructure (Tau21)", fontsize=12, fontweight='bold')
+        
+        if args.region_start is not None and args.region_end is not None:
+            # Show substructure ONLY for events in the focused region
+            r_start_gev = args.region_start * 1000
+            r_end_gev = args.region_end * 1000
+            mask_region = (X[:, 0] >= r_start_gev) & (X[:, 0] <= r_end_gev)
+            
+            if np.sum(mask_region) > 0:
+                X_region = X[mask_region]
+                scores_region = scores[mask_region]
+                thresh_region = np.percentile(scores_region, 99)
+                is_anom_region = scores_region > thresh_region
+                
+                normal_region = X_region[~is_anom_region]
+                anoms_region = X_region[is_anom_region]
+                
+                if len(normal_region) > 0:
+                    plt.hist(normal_region[:, 6], bins=30, density=True, alpha=0.5, 
+                            color='gray', label='Normal (In Region)', range=(0,1))
+                if len(anoms_region) > 0:
+                    plt.hist(anoms_region[:, 6], bins=30, density=True, alpha=0.6, 
+                            color='crimson', label='Anomalies (In Region)', range=(0,1))
+                plt.title(f"3. Jet Substructure (Tau21) - {args.region_start}-{args.region_end} TeV", 
+                         fontsize=12, fontweight='bold')
+            else:
+                plt.text(0.5, 0.5, 'No events in region', ha='center', va='center', fontsize=14)
+                plt.title("3. Jet Substructure (Tau21) - NO DATA", fontsize=12, fontweight='bold')
+        else:
+            # Original global view if no region specified
+            plt.hist(normal[:, 6], bins=30, density=True, alpha=0.5, color='gray', 
+                    label='Normal (Background-like)', range=(0,1))
+            plt.hist(anomalies[:, 6], bins=30, density=True, alpha=0.6, color='crimson', 
+                    label='Anomalies (Candidates)', range=(0,1))
+            plt.title("3. Jet Substructure (Tau21)", fontsize=12, fontweight='bold')
+        
         plt.xlabel(r"$\tau_{21}$ (Lower $\leftarrow$ Signal-like | Background-like $\rightarrow$ Higher)")
         plt.ylabel("Density")
         plt.legend()
