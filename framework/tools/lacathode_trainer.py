@@ -51,10 +51,13 @@ Data Structure Assumption (based on data_preparation.py and user query):
 - Column -1: Label -> Signal (1) vs Background (0)
 """
 
+default_data_dir = os.path.join("toolout", "lacathode_input_data")
+default_model_dir = os.path.join("toolout", "lacathode_trained_models")
+
 parser = argparse.ArgumentParser(description="Train LaCATHODE Model")
-parser.add_argument("--data_dir", type=str, default="./toolout/lacathode_input_data/",
+parser.add_argument("--data_dir", type=str, default=default_data_dir,
                     help="Directory containing processed .npy files")
-parser.add_argument("--model_dir", type=str, default="./toolout/lacathode_trained_models/",
+parser.add_argument("--model_dir", type=str, default=default_model_dir,
                     help="Directory to save/load trained models")
 parser.add_argument("--load_flow", action="store_true",
                     help="Load existing Flow model instead of retraining")
