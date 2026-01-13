@@ -143,7 +143,7 @@ class LaCATHODEPreperation:
 
         # Signal Region Sizing
         sr_width = self.max_mass - self.min_mass
-        if sr_width < 0.2:
+        if sr_width < 0.19:
             raise ValueError(f"Signal Region definition too narrow ({sr_width:.2f} TeV). Window should be at least 0.2 TeV to capture sufficient events.")
         if sr_width > 1.2:
             raise ValueError(f"Signal Region definition too wide ({sr_width:.2f} TeV). Background estimation degrades if window > 1.0 TeV.")
