@@ -542,23 +542,23 @@ def generate_report(**args):
         
         if max_sig_val > 3.0:
             # Case A: We rejected background but found a huge bump -> Likely Signal
-            report.append(f"- **Status:** 🟢 POTENTIAL DISCOVERY (Significance {max_sig_val:.2f}σ)")
+            report.append(f"- **Status:** POTENTIAL DISCOVERY (Significance {max_sig_val:.2f}$\\sigma$)")
             report.append("  - **Interpretation:** The classifier rejected the background but kept a massive excess of data.")
             report.append("  - **Action:** Verification recommended, but this is a strong positive signal.")
         else:
             # Case B: We rejected background and found nothing -> Likely Broken Model
-            report.append(f"- **Status:** 🔴 INCONCLUSIVE (Significance {max_sig_val:.2f}σ)")
+            report.append(f"- **Status:** INCONCLUSIVE (Significance {max_sig_val:.2f}$\\sigma$)")
             report.append("  - **Interpretation:** The classifier rejected the background and found no significant structure.")
             report.append("  - **Action:** This indicates model failure/overfitting. Retraining is recommended.")
             
     else:
         # Standard Operation (Model passed quality checks)
         # Lowered threshold to 2.0 so 4B LLM notices "Moderate" signals (like your 2.53 sigma)
-        status_icon = "🟢" if max_sig_val > 2.0 else "⚪"
-        if max_sig_val > 5.0: status_icon = "🌟" # Discovery threshold
+        status_icon = "" if max_sig_val > 2.0 else ""
+        if max_sig_val > 5.0: status_icon = "" # Discovery threshold
         
         report.append(f"- **Analysis Mode:** STANDARD (Rate + Shape)")
-        report.append(f"- **Status:** {status_icon} Valid Result (Significance {max_sig_val:.2f}σ)")
+        report.append(f"- **Status:** {status_icon} Valid Result (Significance {max_sig_val:.2f}$\\sigma$)")
         
         if max_sig_val > 3.0:
              report.append("  - **Interpretation:** Strong evidence of anomaly found.")
