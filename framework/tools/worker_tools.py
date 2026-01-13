@@ -1,6 +1,7 @@
 import sys
 import subprocess
 import os
+from dotenv import load_dotenv
 
 from framework.tools.gemma_client import query_gemma_cloud
 from framework.logger import get_logger
@@ -13,6 +14,8 @@ def get_project_root_env():
     to PYTHONPATH. This allows subprocesses (like tools) to import from 'framework'
     without needing relative path hacks.
     """
+    load_dotenv()  # Load environment variables from .env file if present
+
     env = os.environ.copy()
 
     # Load session ID manually in case wroker runs standalone
@@ -20,6 +23,10 @@ def get_project_root_env():
     if os.path.isfile(session_id_file):
         with open(session_id_file, 'r') as f:
             session_id = f.read().strip()
+
+            if env.get("DEVICE_TAG"):
+                session_id = f"{env['DEVICE_TAG']}_{session_id}"
+
             env["FRAMEWORK_SESSION_ID"] = session_id
 
     # Add CWD to PYTHONPATH so 'import framework' works in subprocesses

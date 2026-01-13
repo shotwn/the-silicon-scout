@@ -46,16 +46,6 @@ def propose_regions(
 ):
     """
     Implements a Sliding Window Scan for CATHODE/LaCATHODE anomaly detection.
-    
-    Architecture Decisions:
-    1. Global Sidebands: Unlike localized sidebands (e.g., +/- 200 GeV), we use the full 
-       available spectrum (2-6 TeV) for background estimation. This prevents "data starvation" 
-       where the Normalizing Flow fails to learn the global background probability density p(x|m).
-    
-    2. Bottleneck Scoring: Regions are ranked by their weakest statistical link. 
-       Analysis stability is strictly limited by the region (Left SB, SR, or Right SB) 
-       with the fewest events. This naturally filters out the trigger turn-on (empty Left SB) 
-       and the kinematic tail (empty Right SB/SR).
     """
     
     # 1. Load Data
@@ -89,21 +79,16 @@ def propose_regions(
         safe_mass_floor = 2.0 * trigger_threshold_pt
         
         # Enforce Minimum Anchor Width (0.5 TeV = 500 GeV)
-        # The SR cannot start until we have at least 500 GeV of Sideband to its left.
         min_anchor_gev = 500.0
         
-        # Start Constraint: User request (scan_range_start) vs Physical Safety
-        # Must be > safe floor AND > data_pool_min + anchor
+        # Start Constraint
         safety_floor = max(safe_mass_floor, data_pool_min + min_anchor_gev)
-        
-        # We start at whichever is higher: what the user asked for or what is safe
         current_sr_start = max(scan_range_start, safety_floor)
 
         if current_sr_start > scan_range_start:
             logger.warning(f"Adjusting requested start {scan_range_start} to {current_sr_start} GeV for safety.")
 
-        # Stop Constraint: User request (scan_range_stop) vs Physical Safety
-        # The SR end must be < scan_range_stop AND leave room for the Right Anchor
+        # Stop Constraint
         safety_ceiling = data_pool_max - min_anchor_gev
         effective_stop = min(scan_range_stop, safety_ceiling)
 
@@ -111,9 +96,6 @@ def propose_regions(
             sr_end = current_sr_start + window_width
             sr_center = (current_sr_start + sr_end) / 2
             
-            # Sideband Definition:
-            # We fix sidebands to the global analysis limits. 
-            # The SR creates a "hole" in this global dataset.
             sb_min = data_pool_min
             sb_max = data_pool_max
             
@@ -126,18 +108,10 @@ def propose_regions(
             sr_count = np.sum(sr_mask)
             right_count = np.sum(right_mask)
 
-            # Scoring Logic
-            # Metric: Minimum Event Count (Bottleneck)
-            # 
-            # Why: 
-            # - Trigger Turn-on (Low Mass): Left SB count drops to zero. Model cannot interpolate from left.
-            # - Kinematic Tail (High Mass): SR/Right SB count drops. Statistical significance vanishes.
-            # 
-            # This metric forces the selection of the "sweet spot" (typically 3-4 TeV) where
-            # the trigger efficiency plateau meets the falling cross-section.
+            # Scoring Logic: Bottleneck Statistic
             bottleneck_stat = min(left_count, right_count, sr_count)
             
-            # Filter unstable regions (arbitrary floor to prevent singular covariance matrices in training)
+            # Filter unstable regions
             if bottleneck_stat > 100: 
                 rec = {
                     "id": f"SR_{int(sr_center)}",
@@ -160,8 +134,7 @@ def propose_regions(
 
             current_sr_start += step_size
 
-        # Output
-        # Return sorted by robustness (Descending Bottleneck Score)
+        # Output: Return sorted by robustness
         candidates.sort(key=lambda x: x["quality_score"], reverse=True)
         
         return candidates[:15]
@@ -170,67 +143,121 @@ def propose_regions(
         return {"error": str(e)}
 
 
-def plot_quality_map(masses, candidates, data_pool_min, data_pool_max, trigger_threshold_pt, job_id=None):
+def plot_quality_map(masses, candidates, data_pool_min, data_pool_max, 
+                     trigger_threshold_pt, window_width, step_size, job_id=None):
     """
-    Generates Figure: The Region Proposer Output.
-    Visualizes mass histogram with a Quality Score heatmap.
+    Generates Figure: The Region Proposer Output - Quality Map.
+    Dashboard style with Interpretation Guide.
     """
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True, 
-                                   gridspec_kw={'height_ratios': [4, 1], 'hspace': 0.05})
-
-    # 1. Top Plot: Mass Histogram
-    counts, bins, _ = ax1.hist(masses, bins=100, range=(data_pool_min, data_pool_max), 
-                               color='gray', alpha=0.3, label='Mass Spectrum')
-    ax1.set_ylabel("Events / Bin")
-    ax1.set_title("Figure 3.3: The Region Proposer Output - Quality Map", fontsize=14, fontweight='bold')
     
-    # Vertical line for Trigger Safety Floor
-    safe_floor = 2.0 * trigger_threshold_pt
-    ax1.axvline(safe_floor, color='red', linestyle='--', label=f'Trigger Safe Floor ({int(safe_floor)} GeV)')
+    # Grid Layout: 
+    # Left Column (70%): Mass Histogram (Top) + Heatmap (Bottom)
+    # Right Column (30%): Info Panel
+    fig = plt.figure(figsize=(16, 9))
+    gs = fig.add_gridspec(2, 2, width_ratios=[3, 1], height_ratios=[5, 1], 
+                          wspace=0.1, hspace=0.05)
 
-    # 2. Bottom Plot: Quality Heatmap
-    # Create a dense grid of scores across the spectrum
+    ax1 = fig.add_subplot(gs[0, 0]) # Histogram
+    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1) # Heatmap
+    ax_info = fig.add_subplot(gs[:, 1]) # Right Panel
+    ax_info.axis('off')
+
+    # --- 1. Top Plot: Mass Histogram ---
+    counts, bins, _ = ax1.hist(masses, bins=100, range=(data_pool_min, data_pool_max), 
+                               color='darkgray', alpha=0.4, label='Available Data', histtype='stepfilled')
+    ax1.set_ylabel("Events / Bin", fontsize=12)
+    ax1.set_title("Region Proposer: Mass Spectrum & Scan Quality", fontsize=16, fontweight='bold')
+    ax1.grid(True, alpha=0.3, linestyle='--')
+    
+    # Trigger Floor Line
+    safe_floor = 2.0 * trigger_threshold_pt
+    ax1.axvline(safe_floor, color='crimson', linestyle='--', linewidth=2, label=f'Trigger Floor ({int(safe_floor)} GeV)')
+    
+    # Scan Range Highlights
+    if candidates:
+        # Highlight the best candidate window
+        best = candidates[0]['tool_parameters']
+        best_min = best['min_mass_signal_region'] * 1000
+        best_max = best['max_mass_signal_region'] * 1000
+        ax1.axvspan(best_min, best_max, color='limegreen', alpha=0.2, label='Best Search Region')
+
+    ax1.legend(loc='upper right')
+
+    # --- 2. Bottom Plot: Quality Heatmap ---
     x_grid = np.linspace(data_pool_min, data_pool_max, 500)
     scores = np.zeros_like(x_grid)
     
-    # Map candidate scores to the grid
     if candidates:
         max_score = max(c['quality_score'] for c in candidates)
         for c in candidates:
             m_min = c['tool_parameters']['min_mass_signal_region'] * 1000.0
             m_max = c['tool_parameters']['max_mass_signal_region'] * 1000.0
-            # Fill the grid where this SR exists
+            # Fill grid
             scores[(x_grid >= m_min) & (x_grid <= m_max)] = c['quality_score'] / max_score
 
-    # Plotting the heatmap bar
-    im = ax2.imshow([scores], aspect='auto', cmap='RdYlGn', 
-                    extent=[data_pool_min, data_pool_max, 0, 1], interpolation='nearest')
+    # Plot Heatmap
+    # Using 'RdYlGn' (Red=Bad, Green=Good)
+    ax2.imshow([scores], aspect='auto', cmap='RdYlGn', vmin=0, vmax=1,
+               extent=[data_pool_min, data_pool_max, 0, 1], interpolation='nearest')
     
-    ax2.set_yticks([]) # Hide y-axis for heatmap
-    ax2.set_xlabel("Invariant Mass $m_{jj}$ [GeV]")
+    ax2.set_yticks([]) 
+    ax2.set_xlabel("Invariant Mass $m_{jj}$ [GeV]", fontsize=12)
     
-    # Add text annotations for zones
-    ax2.text(data_pool_min + 100, 0.5, "Bias Risk", color='black', fontweight='bold', va='center')
-    ax2.text(data_pool_max - 800, 0.5, "Data Starved", color='black', fontweight='bold', va='center')
+    # Annotations on Heatmap
+    ax2.text(data_pool_min + 200, 0.5, "TRIGGER BIAS RISK", color='black', fontweight='bold', va='center', fontsize=9, alpha=0.7)
+    ax2.text(data_pool_max - 1500, 0.5, "LOW STATISTICS", color='black', fontweight='bold', va='center', fontsize=9, alpha=0.7)
 
-    # Colorbar and Legend
-    ax1.legend()
-    
+    # --- 3. Info Panel (Right Side) ---
+    info_text = (
+        r"$\bf{INTERPRETATION\ GUIDE}$" + "\n\n"
+        r"$\bf{What\ is\ this?}$" + "\n"
+        "A stability map for Anomaly Detection.\n"
+        "We scan the spectrum to find regions where\n"
+        "background estimation is statistically robust.\n\n"
+        r"$\bf{The\ Heatmap\ (Bottom\ Bar)}$" + "\n"
+        "Shows the 'Quality Score' for placing a\n"
+        "Signal Region (SR) at that mass.\n\n"
+        r"$\bullet\ \bf{Green\ Zone:}$" + " Optimal.\n"
+        "Sufficient data in Left SB, SR, and Right SB.\n"
+        "Safe for LaCATHODE training.\n\n"
+        r"$\bullet\ \bf{Red/Yellow\ Zone:}$" + " Unstable.\n"
+        "Low event counts in one of the regions.\n"
+        "- Low Mass: Trigger turn-on effects.\n"
+        "- High Mass: Kinematic tail (data starvation).\n\n"
+        r"$\bf{Recommendation}$" + "\n"
+        "Select a window from the Greenest area.\n"
+        "The 'Best Search Region' (Green band) is\n"
+        "automatically highlighted."
+    )
+    ax_info.text(0.05, 0.95, info_text, fontsize=11, verticalalignment='top', linespacing=1.6)
+
+    # --- 4. Debug Watermark ---
+    debug_text = (
+        f"RUN CONFIGURATION:\n"
+        f"Timestamp: {time.strftime('%Y-%m-%d %H:%M')}\n"
+        f"Scan Window: {int(window_width)} GeV\n"
+        f"Scan Step: {int(step_size)} GeV\n"
+        f"Trigger Threshold: {int(trigger_threshold_pt)} GeV\n"
+        f"Job ID: {job_id if job_id else 'N/A'}"
+    )
+    plt.figtext(0.98, 0.02, debug_text, ha='right', va='bottom', 
+                fontsize=9, color='dimgray', family='monospace', 
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
+
+    # Save
     output_name = ["quality_map"]
-    session_id = os.environ.get("SESSION_ID", None)
+    session_id = os.environ.get("FRAMEWORK_SESSION_ID", None)
     if session_id:
         output_name.append(f"s_{session_id}")
-    
     if job_id:
         output_name.append(f"job_{job_id}")
-
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     output_name.append(f"{timestamp}")
 
     output_path = f"{'_'.join(output_name)}.png"
     output_path = os.path.join("toolout/graphs/region_proposer", output_path)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=150)
     print(f"Visual Quality Map saved to: {output_path}")
 
 if __name__ == "__main__":
@@ -250,8 +277,6 @@ if __name__ == "__main__":
     parser.add_argument("--trigger_threshold_pt", type=float, default=1200.0)
 
     args = parser.parse_args()
-
-    job_id = args.job_id
 
     results = propose_regions(
         input_background=args.input_background,
@@ -283,7 +308,9 @@ if __name__ == "__main__":
                 data_pool_min=args.data_pool_min, 
                 data_pool_max=args.data_pool_max, 
                 trigger_threshold_pt=args.trigger_threshold_pt,
-                job_id=job_id
+                window_width=args.window_width,  # Passed for debug info
+                step_size=args.step_size,        # Passed for debug info
+                job_id=args.job_id
             )
     except Exception as e:
         logger.error(f"Could not generate plot: {e}")
@@ -296,8 +323,8 @@ if __name__ == "__main__":
         sys.exit(0)
 
     print("<tool_result>")
-    if job_id:
-        print(f"Job ID: {job_id}")
+    if args.job_id:
+        print(f"Job ID: {args.job_id}")
     print("Following are signal region proposals to start your analysis with (ordered by quality score):")
     print(json.dumps(results, indent=2))
     print("</tool_result>")

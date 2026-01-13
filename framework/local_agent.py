@@ -16,11 +16,16 @@ class LocalAgent:
     def __init__(
             self, 
             model_name: str, 
+            persistent_messages: list= None,
             initial_messages: list= None,
             rag_engine_enabled: bool = False
         ):
         self.initial_messages = initial_messages if initial_messages is not None else []
         self.messages = [] + self.initial_messages
+
+        # These messages are always prepended to every new response request
+        self.persistent_messages = persistent_messages if persistent_messages is not None else []
+
         self.model_name = model_name
         self.rag_engine_enabled = rag_engine_enabled
         self.sanitize_messages = True
@@ -32,7 +37,74 @@ class LocalAgent:
         self.pending_job_id = None
         self.logger = get_logger(f"Agent-{self.__class__.__name__}")
 
-    def save_state(self, job_id, tool_name, tool_args):
+        self.num_ctx = int(os.environ.get("NUM_CTX", 32768)) # Adjust based on your VRAM
+        self.context_history = self.messages.copy()
+        self.context_usage = {
+            "used_tokens": 0,
+            "capacity": self.num_ctx,
+            "percentage": 0.0,
+            "last_done_reason": None
+        }
+
+    def append_message(
+            self, 
+            role: str, 
+            content: str, 
+            id: str = None,
+            parent_id: str = None,
+            thinking: str = "",
+            tool_calls: list = None,
+            tool_name: str = None,
+            timestamp: float = None
+        ):
+        """
+        Appends a message to history with auto-generated ID and timestamp.
+        """
+        if role not in ["user", "assistant", "tool", "system"]:
+            raise ValueError(f"Invalid role '{role}'. Must be 'user', 'assistant', 'tool', or 'system'.")
+        
+        if role == "system":
+            # Importing system messages is not supported yet
+            self.logger.warning("System messages cannot be appended dynamically yet.")
+            return None, None
+        
+        if id is None:
+            id = uuid.uuid4().hex
+
+
+        if timestamp is None:
+            timestamp = time.time()
+        
+        
+        msg_obj = {
+            "role": role, 
+            "content": content, 
+            "thinking": thinking,
+            "tool_calls": tool_calls if tool_calls is not None else [],
+            "tool_name": tool_name,
+            "id": id,
+            "timestamp": timestamp
+        }
+
+        if parent_id:
+            msg_obj["parent_id"] = parent_id
+        
+        self.messages.append(msg_obj)
+        self.context_history.append(msg_obj)
+        
+        # Get index of the appended message
+        current_msg_index = len(self.messages) - 1
+
+        return current_msg_index, id # Return the message ID for reference
+    
+    def flush_messages(self):
+        """
+        Clears the message history.
+        """
+        self.messages = [] + self.initial_messages
+        self.context_history = self.messages.copy()
+
+    def save_state(self, job_id, tool_name, tool_args, initiating_message_id):
         """Persist state to disk for async processing"""
         os.makedirs("jobs/pending", exist_ok=True)
         
@@ -41,6 +113,7 @@ class LocalAgent:
             "tool_name": tool_name,
             "tool_args": tool_args,
             "messages": self.messages, 
+            "initiating_message_id": initiating_message_id,
             "agent_config": {
                 "base_model": self.model_name
             },
@@ -65,10 +138,13 @@ class LocalAgent:
             history_from_job = job_data["original_state"]["messages"]
             
             # Simple resume logic: inject tool result
-            tool_call_id = uuid.uuid4().hex
+            tool_call_id = job_data["original_state"].get("job_id", uuid.uuid4().hex)
 
             # Get the last tool call made by this agent
             last_tool_call_name = job_data["original_state"].get("tool_name", None)
+
+            # Get the caller's id
+            parent_id = job_data['original_state'].get('initating_message_id', uuid.uuid4().hex)
             
             # Note: We need to append the result to conversation
             # The last message in 'messages' should be the assistant's tool call
@@ -79,11 +155,14 @@ class LocalAgent:
                 "content": job_data["tool_result"],
                 "id": tool_call_id,
                 "tool_name": last_tool_call_name,
+                "parent_id": parent_id
             }
 
-            history_from_job.append(tool_result_msg)
-            
-            self.messages = history_from_job
+            self.flush_messages()
+            for msg in history_from_job:
+                self.messages.append(msg)
+
+            self.messages.append(tool_result_msg)
     
     def wait_for_tool_completion(self, job_id):
         """Poll for tool completion, then resume generation."""
@@ -110,7 +189,7 @@ class LocalAgent:
             # Trigger generation after loading tool result
             self.logger.info("Resuming generation after tool result...")
             resume_signal = "" # Disabled again because model thinks there is new user input
-            generator = self.respond(resume_signal, message_id=uuid.uuid4().hex)
+            generator = self.respond(resume_signal, message_id=uuid.uuid4().hex) # this message id is unused when content is empty
             
             # Yield this back to caller
             try:
@@ -149,14 +228,20 @@ class LocalAgent:
         """
         Reconstructs the chat history from self.messages to match the 
         exact format used in the live chat_function generator.
-        """
-
-        
+        """        
         history = []
         for msg in self.messages:
             role = msg["role"]
             content = msg.get("content", "")
             msg_id = msg.get("id")
+
+            if role not in ["user", "assistant", "tool"]:
+                continue  # Skip system or unknown roles
+
+            if not msg_id:
+                self.logger.warning("Message without ID found in history reconstruction.")
+                self.logger.warning(f"Message content: {content}")
+                msg_id = uuid.uuid4().hex  # Assign a random ID if missing
             
             if role == "user":
                 history.append(gr.ChatMessage(
@@ -165,19 +250,22 @@ class LocalAgent:
                     metadata={"id": msg_id}
                 ))
             elif role == "assistant":
+                # Thinking Bubble
                 if msg.get("thinking"):
                     history.append(gr.ChatMessage(
                         role="assistant",
                         content=msg["thinking"],
-                        metadata={"title": "Thinking", "id": msg_id}
+                        metadata={"title": "Thinking", "parent_id": msg_id}
                     ))
+                # Tool Calls
                 if msg.get("tool_calls"):
                     for tool_call in msg["tool_calls"]:
                         history.append(gr.ChatMessage(
                             role="assistant",
                             content=f"Tool Call:\nFunction: {tool_call['function']['name']}\nArguments: {tool_call['function']['arguments']}",
-                            metadata={"title": "Tool Call", "id": msg_id}
+                            metadata={"title": "Tool Call", "parent_id": msg_id}
                         ))
+                # Actual Assistant Response
                 if msg.get("content"):
                     history.append(gr.ChatMessage(
                         role="assistant",
@@ -185,14 +273,23 @@ class LocalAgent:
                         metadata={"id": msg_id}
                     ))
             elif role == "tool":
+                metadata = {"title": f"Tool: {msg.get('tool_name', 'Unknown')}", "id": msg_id}
+                if msg.get("parent_id"):
+                    metadata["parent_id"] = msg.get("parent_id")
+
                 history.append(gr.ChatMessage(
                     role="assistant",
                     content=f"Tool Result:\n{content}",
-                    metadata={"title": "Tool Result", "id": msg_id}
+                    metadata=metadata
                 ))
+
         return history
 
     def respond(self, user_input:str, message_id=None) -> list:
+        """
+        Orchestrates the multi-step generation (Think -> Tool -> Think).
+        Yields the FULL history at every step to keep the UI in sync.
+        """
         max_steps = 100
         previous_steps_parsed = []
         while max_steps > 0:
@@ -208,6 +305,7 @@ class LocalAgent:
                     if not tool_call:
                         continue
 
+                    # Parse Tool Data
                     if isinstance(tool_call, dict):
                         tool_name = tool_call["function"]["name"]
                         tool_args = tool_call["function"]["arguments"]
@@ -222,8 +320,7 @@ class LocalAgent:
                         job_id = f"{timestamp}_{uuid.uuid4().hex}"
                         
                         self.pending_job_id = job_id
-
-                        self.save_state(job_id, tool_name, tool_args)
+                        self.save_state(job_id, tool_name, tool_args, initiating_message_id=parsed.get('id', uuid.uuid4().hex))
                         
                         yield previous_steps_parsed + [{
                             "content": f"Job {job_id} queued for {tool_name}. Waiting for completion...",
@@ -239,7 +336,7 @@ class LocalAgent:
 
                     # Normal Sync Tool Execution
                     tool_result = self.run_tool_call(tool_call)
-                    self.messages.append({"role": "tool", "content": tool_result, "id": message_id})
+                    self.append_message("tool", tool_result, parent_id=message_id, tool_name=tool_name)
 
                     previous_steps_parsed.append({
                         "tool_result": tool_result,
@@ -252,7 +349,7 @@ class LocalAgent:
             else:
                 return previous_steps_parsed
 
-        # Check if max steps exceeded
+        # Handle Runaway Loops
         if max_steps <= 0:
             yield previous_steps_parsed + [{
                 "content": "Error: Maximum tool call steps exceeded. Aborting to prevent infinite loop.",
@@ -263,36 +360,32 @@ class LocalAgent:
         
             self.logger.warning("Maximum tool call steps exceeded. Aborting generation to prevent infinite loop.")
 
-    def generate_step(self, user_input:str, message_id=None):
+    def generate_step(self, user_input:str, user_message_id=None):
         if user_input and user_input.strip() != "":
-            self.messages.append({"role": "user", "content": user_input, "id": message_id})
+            self.append_message("user", user_input, user_message_id)
 
         # Prepare messages for Ollama
         # We perform the same sanitization (removing old <think> blocks)
         prompt_input_messages = []
         if self.sanitize_messages:
             # Leave last thinking block if present
-            reversed_messages = list(reversed(self.messages))
             spare_thinking_count = 3 # Keep last 3 thinking blocks
-            for msg in reversed_messages:
+            for msg in list(reversed(self.messages)):
                 clean_msg = msg.copy()
                 if clean_msg["role"] == "assistant" and clean_msg.get("thinking", "").strip() != "":
                     if spare_thinking_count > 0:
                         spare_thinking_count -= 1
                     else:
                         # Clean thinking blocks
-                        clean_msg["thinking"] = ""
-                prompt_input_messages.append(clean_msg)
-            
-            prompt_input_messages = list(reversed(prompt_input_messages))
+                        clean_msg["thinking"] = "[Removed previous thinking to reduce context.]"
+                prompt_input_messages.insert(0, clean_msg)
         else:
             prompt_input_messages = self.messages
 
-        # Add tools definition to the system prompt context if needed
-        # Since we use manual XML tool calling, we rely on the system prompt provided in initialization.
-        # Ensure your system prompt in `__main__.py` still includes the tool definitions.
+        # Always prepend persistent (system) messages
+        prompt_input_messages = self.persistent_messages + prompt_input_messages
 
-        self.logger.info(f"--- Sending request to Ollama ({self.model_name}) ---")
+        self.logger.info(f"> Sending request to Ollama ({self.model_name}) --->")
         
         # Log prompt
         os.makedirs("debug_logs", exist_ok=True)
@@ -310,33 +403,37 @@ class LocalAgent:
             options={
                 "temperature": 0.6,
                 "top_p": 0.9,
-                "num_ctx": 16384, # Adjust based on your VRAM
+                "num_ctx": self.num_ctx, # Adjust based on your VRAM
             },
             keep_alive=300 # Keep model loaded for 5 minutes this is the default
         )
 
+        assistant_message_id = uuid.uuid4().hex
+        timestamp = time.time()
+        
         response = {
             'role': 'assistant',
             'content': "",
             'thinking': "",
-            'tool_calls': [], # Object ToolCall instances,
+            'tool_calls': [],
             'tool_name': None,
-            'id': message_id
+            'id': assistant_message_id
         }
 
         def serialize_response(resp):
+
             return {
                 "role": resp["role"],
                 "content": resp["content"],
                 "thinking": resp["thinking"],
                 "tool_calls": [{"function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in resp["tool_calls"]],
                 "tool_name": resp["tool_name"],
-                "id": resp["id"]
+                "id": assistant_message_id,
+                "timestamp": timestamp # Timestamp will be final time
             }
         
         # Store response early so polling interfaces can see it
-        self.messages.append(serialize_response(response))
-        current_msg_index = len(self.messages) - 1
+        current_msg_index, _ = self.append_message(**serialize_response(response))
 
         for chunk in stream:
             # Chunk is in format
@@ -347,6 +444,37 @@ class LocalAgent:
             # prompt_eval_duration=None eval_count=None eval_duration=None 
             # message=Message(role='assistant', content='', thinking='.', images=None, tool_name=None, tool_calls=None) 
             # logprobs=None
+
+            # Update context usage on done
+            if chunk.get('done'):
+                # Extract token counts provided by Ollama
+                prompt_tokens = chunk.get('prompt_eval_count', 0)
+                eval_tokens = chunk.get('eval_count', 0)
+                total_tokens = prompt_tokens + eval_tokens
+                
+                limit = self.num_ctx
+                usage_ratio = (total_tokens / limit) * 100 if limit > 0 else 0
+                done_reason = chunk.get('done_reason', 'unknown')
+
+                # Update State
+                self.context_usage = {
+                    "used_tokens": total_tokens,
+                    "capacity": limit,
+                    "percentage": round(usage_ratio, 2),
+                    "last_done_reason": done_reason
+                }
+
+                # Log for Debugging (Hidden from user, visible in logs)
+                self.logger.info(
+                    f"Context Stats: {total_tokens}/{limit} tokens used ({usage_ratio:.1f}%). "
+                    f"Prompt: {prompt_tokens}, Gen: {eval_tokens} | Done Reason: {done_reason}"
+                )
+                
+                # OPTIONAL: Early Warning
+                if usage_ratio > 90.0:
+                    self.logger.warning(f"⚠️ Context window is {usage_ratio:.1f}% full! Pruning recommended soon.")
+
+            # Update response parts
             message = chunk.message
             response['role'] = message.role
 
