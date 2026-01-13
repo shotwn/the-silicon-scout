@@ -359,13 +359,16 @@ class LaCATHODEPreperation:
         else:
             plt.suptitle(f'Feature Distributions for {data_label}', fontsize=16)
 
-        save_dir = [top_dir]
+        save_dir = ['toolout', 'graphs', 'lacathode_preperation']
         if self.session_id:
             save_dir.append(self.session_id)
-        if data_label:
-            save_dir.append(data_label)
-        save_prefix = f'{self.session_id + "_" if self.session_id else ""}'
-        save_to = os.path.join(GRAPHS_DIR, f'{save_prefix}feature_distribution_{data_label}.png')
+        
+        if self.job_id:
+            save_dir.append(self.job_id)
+
+        save_to = os.path.join(*save_dir, f'feature_distribution_{data_label}.png')
+        os.makedirs(os.path.dirname(save_to), exist_ok=True)
+        
         plt.savefig(save_to)
 
     def apply_filtering(self, data):
