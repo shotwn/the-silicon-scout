@@ -142,6 +142,78 @@ def propose_regions(
     except Exception as e:
         return {"error": str(e)}
 
+def standard_sliding_window_scan(
+    input_background,
+    input_signal,
+    input_unlabeled,
+    data_pool_min,
+    data_pool_max,
+    scan_range_start,
+    scan_range_stop,
+    window_width,
+    step_size,
+    trigger_threshold_pt
+):
+    try:
+        if input_unlabeled:
+            masses = load_masses_from_file(input_unlabeled)
+        elif input_background and input_signal:
+            bg_masses = load_masses_from_file(input_background)
+            sig_masses = load_masses_from_file(input_signal)
+            masses = np.concatenate([bg_masses, sig_masses])
+        else:
+            return {"error": "No input files provided."}
+
+        if masses is None or len(masses) == 0:
+            return {"error": "No events found."}
+
+        # Standardization: Ensure GeV units for consistency with trigger thresholds
+        if masses.max() < 100:
+            masses *= 1000.0
+    except Exception as e:
+        return {"error": str(e)}
+    
+    # Regular sliding window without rating or filtering
+    scan_results = []
+    
+    # Start from 1.8 * trigger threshold
+    safe_mass_floor = 1.8 * trigger_threshold_pt
+    current_sr_start = max(scan_range_start, safe_mass_floor)
+    effective_stop = min(scan_range_stop, data_pool_max - window_width)
+
+    while current_sr_start + window_width <= effective_stop:
+        sr_end = current_sr_start + window_width
+        sr_center = (current_sr_start + sr_end) / 2
+        
+        sb_min = data_pool_min
+        sb_max = data_pool_max
+        
+        # Event Counting
+        left_mask = (masses >= sb_min) & (masses < current_sr_start)
+        sr_mask = (masses >= current_sr_start) & (masses < sr_end)
+        right_mask = (masses >= sr_end) & (masses < sb_max)
+        
+        left_count = np.sum(left_mask)
+        sr_count = np.sum(sr_mask)
+        right_count = np.sum(right_mask)
+
+        rec = {
+            "focus_mass_gev": int(sr_center),
+            "left_sb_events": int(left_count),
+            "sr_events": int(sr_count),
+            "right_sb_events": int(right_count),
+            "tool_parameters": {
+                "data_pool_min": round(sb_min / 1000.0, 4),      
+                "min_mass_signal_region": round(current_sr_start / 1000.0, 4), 
+                "max_mass_signal_region": round(sr_end / 1000.0, 4),   
+                "data_pool_max": round(sb_max / 1000.0, 4)         
+            }
+        }
+        scan_results.append(rec)
+
+        current_sr_start += step_size
+
+    return scan_results
 
 def plot_quality_map(masses, candidates, data_pool_min, data_pool_max, 
                      trigger_threshold_pt, window_width, step_size, job_id=None):
@@ -291,6 +363,19 @@ if __name__ == "__main__":
         trigger_threshold_pt=args.trigger_threshold_pt
     )
 
+    basic_sliding_window_results = standard_sliding_window_scan(
+        input_background=args.input_background,
+        input_signal=args.input_signal,
+        input_unlabeled=args.input_unlabeled,
+        data_pool_min=args.data_pool_min,
+        data_pool_max=args.data_pool_max,
+        scan_range_start=args.scan_range_start,
+        scan_range_stop=args.scan_range_stop,
+        window_width=args.window_width,
+        step_size=args.step_size,
+        trigger_threshold_pt=args.trigger_threshold_pt
+    )
+
     try:
         mass_data = None
         if args.input_unlabeled:
@@ -315,16 +400,23 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Could not generate plot: {e}")
 
-    if len(results) == 0:
-        print("<tool_result>")
-        print("No viable signal regions found with the given parameters.")
-        print("Make sure you don't have overly restrictive mass windows or insufficient data.")
-        print("</tool_result>")
-        sys.exit(0)
-
     print("<tool_result>")
-    if args.job_id:
-        print(f"Job ID: {args.job_id}")
-    print("Following are signal region proposals to start your analysis with (ordered by quality score):")
-    print(json.dumps(results, indent=2))
+
+    if len(results) == 0 or ("error" in results if isinstance(results, dict) else False):
+        print("No viable signal regions found in smart signal region proposer with the given parameters.")
+        print("Make sure you don't have overly restrictive mass windows or insufficient data.")
+
+    if len(results) > 0 and isinstance(results, list):
+        if args.job_id:
+            print(f"Job ID: {args.job_id}")
+        print("Following are signal region proposals which are good candidates to start your analysis withß (ordered by quality score):")
+        print("```json")
+        print(json.dumps(results, indent=2))
+        print("```")
+
+    if isinstance(basic_sliding_window_results, list) and len(basic_sliding_window_results) > 0:
+        print("\nFull Sliding Window Scan Results:")
+        print("```json")
+        print(json.dumps(basic_sliding_window_results, indent=2))
+        print("```")
     print("</tool_result>")
