@@ -247,48 +247,100 @@ def main():
     
     # --- 4. Visual Plotting (For Humans) ---
     if args.plot:
-        plt.figure(figsize=(12, 10))
+        # Increased size for better readability and space for the Info Panel
+        plt.figure(figsize=(14, 10))
         
-        # Plot 1: Score Dist
+        # Plot 1: Score Distribution
         plt.subplot(2, 2, 1)
-        plt.hist(scores, bins=50, density=True, alpha=0.7, color='blue', label='All Data')
-        plt.axvline(threshold, color='red', linestyle='--', label='Top 1% Cut')
-        plt.title("Anomaly Score Distribution")
+        plt.hist(scores, bins=50, density=True, alpha=0.7, color='steelblue', label='All Events')
+        plt.axvline(threshold, color='crimson', linestyle='--', linewidth=2, label='Anomaly Cut (Top 1%)')
+        plt.title("1. Anomaly Score Distribution", fontsize=12, fontweight='bold')
+        plt.xlabel("Anomaly Score (Higher is more anomalous)")
+        plt.ylabel("Density")
         plt.legend()
+        plt.grid(True, alpha=0.3, linestyle='--')
         
-        # Plot 2: Mass Bump Hunt
+        # Plot 2: Mass Profile
         plt.subplot(2, 2, 2)
         plt.hist(normal[:, 0], bins=50, density=True, alpha=0.5, color='gray', label='Normal (99%)', range=(0, 6000))
-        plt.hist(anomalies[:, 0], bins=50, density=True, alpha=0.5, color='red', label='Anomalies (Top 1%)', range=(0, 6000))
-        plt.title("Invariant Mass (m_jj) Profile")
-        plt.xlabel("Mass [GeV]")
+        plt.hist(anomalies[:, 0], bins=50, density=True, alpha=0.6, color='crimson', label='Anomalies (Top 1%)', range=(0, 6000))
+        plt.title("2. Invariant Mass ($m_{jj}$) Profile", fontsize=12, fontweight='bold')
+        plt.xlabel("Invariant Mass [GeV]")
+        plt.ylabel("Density (Normalized)")
         plt.legend()
+        plt.grid(True, alpha=0.3, linestyle='--')
         
-        # Plot 3: Tau21 Check
+        # Plot 3: Substructure (Tau21)
         plt.subplot(2, 2, 3)
-        plt.hist(normal[:, 6], bins=30, density=True, alpha=0.5, color='gray', label='Normal', range=(0,1))
-        plt.hist(anomalies[:, 6], bins=30, density=True, alpha=0.5, color='red', label='Anomalies', range=(0,1))
-        plt.title("Jet 1 Substructure (Tau21)")
-        plt.xlabel("Tau21 (Lower = More Structure)")
+        plt.hist(normal[:, 6], bins=30, density=True, alpha=0.5, color='gray', label='Normal (Background-like)', range=(0,1))
+        plt.hist(anomalies[:, 6], bins=30, density=True, alpha=0.6, color='crimson', label='Anomalies (Candidates)', range=(0,1))
+        plt.title("3. Jet Substructure (Tau21)", fontsize=12, fontweight='bold')
+        plt.xlabel(r"$\tau_{21}$ (Lower $\leftarrow$ Signal-like | Background-like $\rightarrow$ Higher)")
+        plt.ylabel("Density")
+        plt.legend()
+        plt.grid(True, alpha=0.3, linestyle='--')
 
-        plt.tight_layout()
+        # Plot 4: Info Panel (New)
+        # This replaces the empty slot with a guide on how to interpret the results
+        ax4 = plt.subplot(2, 2, 4)
+        ax4.axis('off')
         
+        info_text = (
+            r"$\bf{INTERPRETATION\ GUIDE}$" + "\n\n"
+            r"$\bf{Fig\ 1:\ Score\ Distribution}$" + "\n"
+            "Events to the right of the red line are selected as anomalies.\n\n"
+            r"$\bf{Fig\ 2:\ Mass\ Bump\ Hunt\ (Crucial)}$" + "\n"
+            "Look for a sharp peak (resonance) in the Red histogram.\n"
+            "If Red just follows Gray (but shifted right), it's likely\n"
+            "just the kinematic tail (not new physics).\n\n"
+            r"$\bf{Fig\ 3:\ Substructure\ Check}$" + "\n"
+            "Real signals often have 2-prong structure (Low Tau21).\n"
+            "- If Red peaks at low values (<0.4): Strong Signal Evidence.\n"
+            "- If Red peaks at high values (>0.6): Likely QCD Noise."
+        )
+        ax4.text(0.05, 0.95, info_text, fontsize=11, verticalalignment='top', linespacing=1.4)
+
+        # DEBUG INFO (Bottom Right)
+        # Discrete footer for tracking experiments
+        input_name = "Unknown"
+        if args.input_unlabeled: input_name = os.path.basename(args.input_unlabeled)
+        elif args.input_background: input_name = "R&D Benchmark"
+        
+        region_str = "Full Spectrum"
+        if args.region_start: region_str = f"{args.region_start} - {args.region_end} TeV"
+        
+        debug_text = (
+            f"RUN CONFIGURATION:\n"
+            f"Timestamp: {time.strftime('%Y-%m-%d %H:%M')}\n"
+            f"Input: {input_name}\n"
+            f"Region: {region_str}\n"
+            f"Params: Trees={args.n_estimators}, Contam={args.contamination}\n"
+            f"Job ID: {args.job_id if args.job_id else 'N/A'}"
+        )
+        
+        # Place debug text in bottom right of the figure canvas
+        plt.figtext(0.98, 0.02, debug_text, ha='right', va='bottom', 
+                    fontsize=9, color='dimgray', family='monospace', 
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='lightgray'))
+
+        # Final Layout Adjustments
+        plt.suptitle("Isolation Forest Anomaly Detection Report", fontsize=18, fontweight='bold', y=0.98)
+        plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Leave room for header/footer
+        
+        # Save
         save_dir = ['toolout', 'graphs', 'iforest']
         session_id = os.environ.get("FRAMEWORK_SESSION_ID", None)
         if session_id:
-            save_dir.append(f"session {session_id}")
+            save_dir.append(f"session_{session_id}")
         
         if args.job_id:
-            save_dir.append(f"job {args.job_id}")
+            save_dir.append(f"job_{args.job_id}")
         
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         save_path = os.path.join(*save_dir, f"isolation_forest_analysis_{timestamp}.png")
 
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-        plt.suptitle("Isolation Forest Anomaly Detection Results", fontsize=16, y=1.02)
-
-        plt.savefig(save_path)
+        plt.savefig(save_path, dpi=150) # Higher DPI for clearer text
         print(f"Detailed physics profile plot saved to {save_path}")
 
 if __name__ == "__main__":
