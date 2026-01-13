@@ -442,7 +442,8 @@ class Framework:
                                     type="messages", 
                                     label="Orchestrator",
                                     scale=1,
-                                    autoscroll=False
+                                    autoscroll=False,
+                                    latex_delimiters=[("$$", "$$"), ("$", "$")],
                                 )
                             
                             with gr.Column(scale=1):
@@ -452,7 +453,8 @@ class Framework:
                                     type="messages",
                                     label="Analytics",
                                     scale=1,
-                                    autoscroll=False
+                                    autoscroll=False,
+                                    latex_delimiters=[("$$", "$$"), ("$", "$")],
                                 )
 
                         with gr.Row(scale=0):
