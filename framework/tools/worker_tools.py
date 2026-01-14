@@ -357,6 +357,7 @@ def lacathode_training_tool(
     command = [
         f"{sys.executable}",
         "framework/tools/lacathode_trainer.py",
+        "--no-verbose"
     ]
 
     model_dir = f"toolout/lacathode_trained_models/{job_id}/"

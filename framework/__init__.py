@@ -295,7 +295,7 @@ class Framework:
         
         # Collect data
         export_data = {
-            "framework_version": "1.0",  # Placeholder version
+            "framework_version": "1.0.1",  # Placeholder version
             "base_model": self.base_model_name,
             "rag_engine_enabled": self.rag_engine_enabled,
             "session_id": self.session_id,
