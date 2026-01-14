@@ -300,6 +300,21 @@ class LocalAgent:
             # Finished the generation for this step
             previous_steps_parsed.append(parsed)
 
+            # Some models like Qwen3 may return empty content and get stuck in a thinking loop
+            # Break if no tool calls and no content
+            if not parsed.get("tool_calls") and (not parsed.get("content") or parsed.get("content").strip() == ""):
+                self.logger.info("No tool calls and no content generated. Ending generation loop.")
+                # We ask it to respond right now
+                # This forces the model to give a final answer instead of looping
+                # This is a lazy way to implement it, but works for now and I am tired
+                generated = self.generate_step(
+                    "You must now produce a tool call or a final answer.\n" \
+                    "You are not allowed to continue reasoning.", None # This will create new message id
+                )
+                for parsed in generated:
+                    yield previous_steps_parsed + [parsed]
+                previous_steps_parsed.append(parsed)
+
             if parsed.get("tool_calls"):
                 for tool_call in parsed["tool_calls"]:
                     if not tool_call:
@@ -369,7 +384,15 @@ class LocalAgent:
         prompt_input_messages = []
         if self.sanitize_messages:
             # Leave last thinking block if present
-            spare_thinking_count = 3 # Keep last 3 thinking blocks
+            env_result = os.environ.get("SPARE_THINKING", 0)
+            # make sure env_result is or can be converted to int
+            try:
+                int(env_result)
+            except ValueError:
+                self.logger.warning(f"Invalid SPARE_THINKING value: {env_result}. Defaulting to 0.")
+                env_result = 0
+
+            spare_thinking_count = int(env_result) # Number of thinking blocks to retain
             for msg in list(reversed(self.messages)):
                 clean_msg = msg.copy()
                 if clean_msg["role"] == "assistant" and clean_msg.get("thinking", "").strip() != "":
@@ -377,7 +400,7 @@ class LocalAgent:
                         spare_thinking_count -= 1
                     else:
                         # Clean thinking blocks
-                        clean_msg["thinking"] = "[Removed previous thinking to reduce context.]"
+                        clean_msg["thinking"] = ""
                 prompt_input_messages.insert(0, clean_msg)
         else:
             prompt_input_messages = self.messages
