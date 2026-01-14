@@ -10,6 +10,11 @@ import matplotlib.cm as cm
 from framework.logger import get_logger
 
 logger = get_logger(__name__)
+toolout_warnings = []
+
+def log_warnings(warning_msg):
+    toolout_warnings.append(warning_msg)
+    logger.warning(warning_msg)
 
 def load_masses_from_file(file_path):
     if not os.path.exists(file_path):
@@ -32,6 +37,24 @@ def load_masses_from_file(file_path):
     else:
         raise ValueError(f"Unsupported file format for {file_path}")
 
+def reshape_datapool_if_needed(scan_range_start, scan_range_stop, data_pool_min, data_pool_max):
+    """
+    Ensures that the scanning range fits within the data pool.
+    Adjusts the data pool if necessary.
+    """
+    adjusted_data_pool_min = data_pool_min
+    adjusted_data_pool_max = data_pool_max
+    margin = 500.0  # 0.5 TeV margin
+
+    if scan_range_start - margin < data_pool_min:
+        adjusted_data_pool_min = scan_range_start - margin
+        log_warnings(f"Adjusting data pool min from {data_pool_min} to {adjusted_data_pool_min} GeV to fit scan range.")
+
+    if scan_range_stop + margin > data_pool_max:
+        adjusted_data_pool_max = scan_range_stop + margin
+        log_warnings(f"Adjusting data pool max from {data_pool_max} to {adjusted_data_pool_max} GeV to fit scan range.")
+    return adjusted_data_pool_min, adjusted_data_pool_max
+
 def propose_regions(
     input_background=None, 
     input_signal=None, 
@@ -48,7 +71,7 @@ def propose_regions(
     Implements a Sliding Window Scan for CATHODE/LaCATHODE anomaly detection.
     """
     
-    # 1. Load Data
+    # Load Data
     masses = None
     try:
         if input_unlabeled:
@@ -72,6 +95,11 @@ def propose_regions(
         if masses.max() < 100:
             masses *= 1000.0
 
+        # Reshape Data Pool if Needed
+        data_pool_min, data_pool_max = reshape_datapool_if_needed(
+            scan_range_start, scan_range_stop, data_pool_min, data_pool_max
+        )
+
         # Scanning Routine
         candidates = []
 
@@ -86,7 +114,8 @@ def propose_regions(
         current_sr_start = max(scan_range_start, safety_floor)
 
         if current_sr_start > scan_range_start:
-            logger.warning(f"Adjusting requested start {scan_range_start} to {current_sr_start} GeV for safety.")
+            log_warnings(f"Adjusting requested start {scan_range_start} to {current_sr_start} GeV for safety."
+                           " Start should be at least 2x trigger threshold and allow for anchor regions.")
 
         # Stop Constraint
         safety_ceiling = data_pool_max - min_anchor_gev
@@ -175,9 +204,14 @@ def standard_sliding_window_scan(
     
     # Regular sliding window without rating or filtering
     scan_results = []
+
+    # Reshape Data Pool if Needed
+    data_pool_min, data_pool_max = reshape_datapool_if_needed(
+        scan_range_start, scan_range_stop, data_pool_min, data_pool_max
+    )
     
-    # Start from 1.8 * trigger threshold
-    safe_mass_floor = 1.8 * trigger_threshold_pt
+    # Start from 2 * trigger threshold
+    safe_mass_floor = 2 * trigger_threshold_pt
     current_sr_start = max(scan_range_start, safe_mass_floor)
     effective_stop = min(scan_range_stop, data_pool_max - window_width)
 
@@ -401,6 +435,8 @@ if __name__ == "__main__":
         logger.error(f"Could not generate plot: {e}")
 
     print("<tool_result>")
+    for warning in toolout_warnings:
+        print(f"WARNING: {warning}")
 
     if len(results) == 0 or ("error" in results if isinstance(results, dict) else False):
         print("No viable signal regions found in smart signal region proposer with the given parameters.")
@@ -409,7 +445,7 @@ if __name__ == "__main__":
     if len(results) > 0 and isinstance(results, list):
         if args.job_id:
             print(f"Job ID: {args.job_id}")
-        print("Following are signal region proposals which are good candidates to start your analysis withß (ordered by quality score):")
+        print("Following are signal region proposals which are good candidates to start your analysis with (ordered by quality score):")
         print("```json")
         print(json.dumps(results, indent=2))
         print("```")
@@ -419,4 +455,6 @@ if __name__ == "__main__":
         print("```json")
         print(json.dumps(basic_sliding_window_results, indent=2))
         print("```")
+
+    print("IMPORTANT: Results are just heuristic-based suggestions. You can still scan other regions based on your analysis needs.")
     print("</tool_result>")
