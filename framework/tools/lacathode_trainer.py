@@ -71,8 +71,10 @@ parser.add_argument("--plot", action="store_true",
                     help="Generate ROC curve plot after training")
 parser.add_argument("--batch_size", type=int, default=int(os.getenv("LACATHODE_BATCH_SIZE", 256)),
                     help="Batch size for training models, adjust based on available memory, 256 is low but safe")
-parser.add_argument("--verbose", action="store_true", default=True,
-                    help="Enable verbose logging during training")
+
+parser.add_argument( "--verbose", dest="verbose", action="store_true", help="Enable verbose output" ) 
+parser.add_argument( "--no-verbose", dest="verbose", action="store_false", help="Disable verbose output" ) 
+parser.set_defaults(verbose=True) # default if neither flag is given
 
 args = parser.parse_args()
 
