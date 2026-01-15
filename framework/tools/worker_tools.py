@@ -499,6 +499,7 @@ def lacathode_report_generator_tool(
         "framework/tools/lacathode_report_generator.py",
         "--data_file", data_file,
         "--scores_file", scores_file,
+        "--print_report"
     ]
 
     if output_dir:
