@@ -1,0 +1,3 @@
+[submodule "sk_cathode"]
+	path = sk_cathode
+	url = https://github.com/shotwn/sk_cathode.git

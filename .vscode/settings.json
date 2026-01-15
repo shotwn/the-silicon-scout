@@ -2,5 +2,12 @@
     "python.analysis.exclude": [
         "lora_lhco",
         "kept_checkpoints"
-    ]
+    ],
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    "accessibility.signals.notebookCellCompleted": {
+        "sound": "on"
+    },
+    "accessibility.signals.notebookCellFailed": {
+        "sound": "on"
+    },
 }
