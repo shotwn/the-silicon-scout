@@ -124,6 +124,12 @@ class LaCATHODETrainer:
         else:
             self.batch_size = int(os.environ.get("LACATHODE_BATCH_SIZE", 256))
 
+        # Clamp batch size
+        self.batch_size = max(256, min(self.batch_size, 4096))
+
+        if batch_size != self.batch_size:
+            self.log_toolout(f"Adjusted batch size to {self.batch_size} based on limits (256-4096).")
+
         self.log_toolout(
             (
                 f"Using device: {self.device} "

@@ -257,24 +257,24 @@ if __name__ == "__main__":
     # If no_label is set, all events were cached as background
     # But we want it to be named unlabeled_events file
     if no_label and not blackbox_labels: # No labels at all
-        with open(f"{args.output_dir}/unlabeled_events.jsonl", "w") as outfile:
+        with open(f"{args.output_dir}/unlabeled_events.jsonl", "w", encoding="utf-8") as outfile:
             for fname in background_files:
-                with open(fname) as infile:
+                with open(fname, encoding="utf-8", errors="replace") as infile:
                     for line in infile:
                         outfile.write(line)
                 os.remove(fname) # Remove the chunk file after merging
         
     else:
-        with open(f"{args.output_dir}/background_events.jsonl", "w") as outfile:
+        with open(f"{args.output_dir}/background_events.jsonl", "w", encoding="utf-8") as outfile:
             for fname in background_files:
-                with open(fname) as infile:
+                with open(fname, encoding="utf-8", errors="replace") as infile:
                     for line in infile:
                         outfile.write(line)
                 os.remove(fname) # Remove the chunk file after merging
 
-        with open(f"{args.output_dir}/signal_events.jsonl", "w") as outfile:
+        with open(f"{args.output_dir}/signal_events.jsonl", "w", encoding="utf-8") as outfile:
             for fname in signal_files:
-                with open(fname) as infile:
+                with open(fname, encoding="utf-8", errors="replace") as infile:
                     for line in infile:
                         outfile.write(line)
                 os.remove(fname) # Remove the chunk file after merging
