@@ -169,7 +169,8 @@ def main():
     X_scaled = scaler.fit_transform(X)
 
     print(f"Training Isolation Forest (n_estimators={args.n_estimators})...")
-    clf = IsolationForest(n_estimators=args.n_estimators, contamination=args.contamination, n_jobs=-1, random_state=42)
+    contamination_safe = 'auto' if args.contamination == 'auto' else float(args.contamination)
+    clf = IsolationForest(n_estimators=args.n_estimators, contamination=contamination_safe, n_jobs=-1, random_state=42)
     clf.fit(X_scaled)
 
     print("Calculating anomaly scores...")
