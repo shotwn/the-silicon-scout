@@ -23,3 +23,4 @@ toolout/
 jobs/
 debug_logs/
 exports/
+experiment-analysis/sessions/**/*
