@@ -196,7 +196,7 @@ class Framework:
 
         # Increment and save immediately to "lock" this session number
         new_count = count + 1
-        with open(counter_path, "w") as f:
+        with open(counter_path, "w", encoding='utf-8') as f:
             f.write(str(new_count))
 
         device_tag = os.environ.get("DEVICE_TAG")
@@ -295,7 +295,7 @@ class Framework:
         
         # Collect data
         export_data = {
-            "framework_version": "1.0",  # Placeholder version
+            "framework_version": "1.0.1",  # Placeholder version
             "base_model": self.base_model_name,
             "rag_engine_enabled": self.rag_engine_enabled,
             "session_id": self.session_id,
@@ -429,7 +429,7 @@ class Framework:
         # Keep only last 50 prompts to keep the dropdown clean
         history = history[:50]
         
-        with open(history_file, "w") as f:
+        with open(history_file, "w", encoding='utf-8') as f:
             json.dump(history, f)
         
         return history

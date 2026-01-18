@@ -31,6 +31,8 @@ def get_project_root_env():
 
     # Add CWD to PYTHONPATH so 'import framework' works in subprocesses
     env["PYTHONPATH"] = os.getcwd() + os.pathsep + env.get("PYTHONPATH", "")
+    # Ensure UTF-8 I/O in child processes to avoid Windows cp1252 decode errors
+    env["PYTHONIOENCODING"] = env.get("PYTHONIOENCODING", "utf-8")
     return env
 
 def fastjet_tool(
@@ -94,10 +96,12 @@ def fastjet_tool(
     logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
-        command, 
-        capture_output=True, 
-        text=True, 
-        check=True, 
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
         env=get_project_root_env()
     )
     
@@ -179,10 +183,12 @@ def propose_signal_regions_tool(
 
     logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
-        command, 
-        capture_output=True, 
-        text=True, 
-        check=True, 
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
         env=get_project_root_env()
     )
     
@@ -296,10 +302,12 @@ def lacathode_preparation_tool(
     logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
-        command, 
-        capture_output=True, 
-        text=True, 
-        check=True, 
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
         env=get_project_root_env()
     )
     
@@ -349,6 +357,7 @@ def lacathode_training_tool(
     command = [
         f"{sys.executable}",
         "framework/tools/lacathode_trainer.py",
+        "--no-verbose"
     ]
 
     model_dir = f"toolout/lacathode_trained_models/{job_id}/"
@@ -371,10 +380,12 @@ def lacathode_training_tool(
     logger.info((f"Executing command: {' '.join(command)}"))
     # Run the subprocess
     result = subprocess.run(
-        command, 
-        capture_output=True, 
-        text=True, 
-        check=True, 
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
         env=get_project_root_env()
     )
     
@@ -488,6 +499,7 @@ def lacathode_report_generator_tool(
         "framework/tools/lacathode_report_generator.py",
         "--data_file", data_file,
         "--scores_file", scores_file,
+        "--print_report"
     ]
 
     if output_dir:
@@ -589,10 +601,12 @@ def python_repl_tool(
 
     logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
-        command, 
-        capture_output=True, 
-        text=True, 
-        check=True, 
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
         env=get_project_root_env(),
         timeout=3600 # 1 hour timeout
     )
@@ -665,10 +679,12 @@ def isolation_forest_tool(
 
     logger.info((f"Executing command: {' '.join(command)}"))
     result = subprocess.run(
-        command, 
-        capture_output=True, 
-        text=True, 
-        check=True, 
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
         env=get_project_root_env()
     )
     

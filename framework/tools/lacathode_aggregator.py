@@ -93,8 +93,13 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
     # Stores all predictions plus metadata for uncertainty quantification
     event_registry = defaultdict(lambda: {'scores': [], 'features': None, 'windows': []})
     
+    # Synthetic Registry: { mass: [score1, score2, ...] } for background model aggregation
+    # Synthetic scores are NOT from actual events but from Gaussian latent space samples
+    synthetic_registry = defaultdict(list)
+    
     files_processed = 0
     total_events_read = 0
+    total_synth_events_read = 0
     window_metadata = []  # Track which windows were processed
 
     print(f"Found {len(run_dirs)} potential run directories. Processing...")
@@ -105,24 +110,37 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
         # --- LOCATE FILES (with recursive search) ---
         # Score file is directly in run_dir
         score_file = os.path.join(run_dir, "scores.npy")
+        synthetic_file = os.path.join(run_dir, "scores_synthetic.npy")
         
         # Data file might be in a subdirectory (run_dir/job_id/)
-        # Search recursively for innerdata_inference.npy
-        data_files = glob.glob(os.path.join(run_dir, "**", "*innerdata_inference.npy"), recursive=True)
+        # Search recursively for innerdata_inference.npy OR innerdata_test.npy
+        data_files = []
+        for name in ["*innerdata_inference.npy", "*innerdata_test.npy"]:
+            data_files = glob.glob(os.path.join(run_dir, "**", name), recursive=True)
+            if data_files: 
+                break
+                
         if not data_files:
-            data_files = glob.glob(os.path.join(run_dir, "*innerdata_inference.npy"))
+            # Try non-recursive glob
+            for name in ["*innerdata_inference.npy", "*innerdata_test.npy"]:
+                data_files = glob.glob(os.path.join(run_dir, name))
+                if data_files:
+                    break
+
         if not data_files:
             # Also try direct path without glob
-            potential_path = os.path.join(run_dir, run_name, "innerdata_inference.npy")
-            if os.path.exists(potential_path):
-                data_files = [potential_path]
+            for name in ["innerdata_inference.npy", "innerdata_test.npy"]:
+                potential_path = os.path.join(run_dir, run_name, name)
+                if os.path.exists(potential_path):
+                    data_files = [potential_path]
+                    break
         
         # Skip failed/incomplete runs
         if not os.path.exists(score_file):
             print(f"  [SKIP] {run_name}: No scores.npy found")
             continue
         if not data_files:
-            print(f"  [SKIP] {run_name}: No innerdata_inference.npy found")
+            print(f"  [SKIP] {run_name}: No innerdata_inference.npy or innerdata_test.npy found")
             continue
 
         try:
@@ -140,7 +158,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
             # Extract window bounds from run name if possible (e.g., "win_2000_2400_rep0")
             window_info = run_name
                 
-            # --- DE-DUPLICATION WITH FULL FEATURE PRESERVATION ---
+            # --- DE-DUPLICATION WITH FULL FEATURE PRESERVATION (REAL EVENTS) ---
             for i, (score, features) in enumerate(zip(scores, data)):
                 mass = features[0]  # Column 0 is always invariant mass
                 
@@ -156,7 +174,25 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
             files_processed += 1
             total_events_read += len(scores)
             window_metadata.append({'name': run_name, 'events': len(scores)})
-            print(f"  [OK] {run_name}: {len(scores)} events")
+            print(f"  [OK] {run_name}: {len(scores)} real events", end="")
+            
+            # --- AGGREGATE SYNTHETIC BACKGROUND (if available) ---
+            # Synthetic file has [Mass, Score] pairs from Gaussian latent space
+            if os.path.exists(synthetic_file):
+                try:
+                    synth_data = np.load(synthetic_file)
+                    # synth_data shape: (n_synth, 2) where columns are [Mass, Score]
+                    
+                    for mass, synth_score in synth_data:
+                        mass_key = round(float(mass), mass_precision)
+                        synthetic_registry[mass_key].append(float(synth_score))
+                    
+                    total_synth_events_read += len(synth_data)
+                    print(f", {len(synth_data)} synthetic")
+                except Exception as e:
+                    print(f" [synth load failed: {e}]")
+            else:
+                print()
             
         except Exception as e:
             print(f"  [ERR] Failed to process {run_dir}: {e}")
@@ -174,7 +210,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
     print(f"AGGREGATION STATISTICS")
     print(f"{'='*50}")
     print(f"  Windows Processed:    {files_processed}")
-    print(f"  Raw Events Read:      {total_events_read:,}")
+    print(f"  Real Events Read:     {total_events_read:,}")
     print(f"  Unique Events:        {unique_events:,}")
     print(f"  De-duplication Rate:  {(1 - unique_events/total_events_read)*100:.1f}%")
     print(f"  Overlap Factor:       {total_events_read / unique_events:.2f}x (avg observations per event)")
@@ -182,6 +218,8 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
     print(f"    - Min: {min(observation_counts)}")
     print(f"    - Max: {max(observation_counts)}")
     print(f"    - Mean: {np.mean(observation_counts):.2f}")
+    print(f"  Synthetic Events:     {total_synth_events_read:,}")
+    print(f"  Synthetic Mass Bins:  {len(synthetic_registry)}")
     print(f"{'='*50}")
 
     # --- RECONSTRUCTION WITH UNCERTAINTY ---
@@ -217,6 +255,31 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
             
         final_obs_counts[i] = len(score_list)
 
+    # --- GENERATE SYNTHETIC REFERENCE DATA ---
+    # Synthetic scores come from Gaussian latent space, not from real events
+    # We reconstruct the [Mass, Score] pairs from aggregated synthetic scores
+    print("Generating aggregated synthetic reference...")
+    synth_masses = []
+    synth_scores = []
+    
+    for mass_key, score_list in synthetic_registry.items():
+        # For each mass bin, aggregate all synthetic scores
+        # Keep them as individual samples (don't average) - this preserves the distribution
+        synth_masses.extend([mass_key] * len(score_list))
+        synth_scores.extend(score_list)
+    
+    if synth_masses:
+        final_synth_data = np.column_stack((synth_masses, synth_scores)).astype(np.float64)
+    else:
+        # Fallback: Generate synthetic data if none exists
+        print("  No synthetic data found in source files. Generating fallback...")
+        # Use consensus scores + Gaussian noise as a conservative background model
+        n_synth = len(final_scores) * 10
+        final_synth_data = np.column_stack((
+            np.tile(final_data[:, 0], 10),  # Tile masses
+            np.random.normal(np.mean(final_scores), np.std(final_scores), n_synth)
+        )).astype(np.float64)
+
     # --- SAVE OUTPUTS ---
     os.makedirs(output_dir, exist_ok=True)
     
@@ -224,6 +287,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
     out_score_path = os.path.join(output_dir, "aggregated_scores.npy")
     out_uncertainty_path = os.path.join(output_dir, "aggregated_uncertainties.npy")
     out_counts_path = os.path.join(output_dir, "aggregated_observation_counts.npy")
+    out_synth_path = os.path.join(output_dir, "aggregated_scores_synthetic.npy")
     out_metadata_path = os.path.join(output_dir, "aggregation_metadata.json")
     
     # Save with float64 for scientific precision
@@ -231,6 +295,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
     np.save(out_score_path, final_scores.astype(np.float64))
     np.save(out_uncertainty_path, final_uncertainties.astype(np.float64))
     np.save(out_counts_path, final_obs_counts)
+    np.save(out_synth_path, final_synth_data)
     
     # Save metadata for reproducibility
     metadata = {
@@ -242,6 +307,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
         'total_events_read': total_events_read,
         'unique_events': unique_events,
         'overlap_factor': total_events_read / unique_events,
+        'synthetic_events_aggregated': total_synth_events_read,
         'observation_stats': {
             'min': int(min(observation_counts)),
             'max': int(max(observation_counts)),
@@ -251,7 +317,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
         'windows': window_metadata
     }
     
-    with open(out_metadata_path, 'w') as f:
+    with open(out_metadata_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
     
     print(f"\nSuccess! Output files saved to {output_dir}:")
@@ -259,6 +325,7 @@ def aggregate_results(source_dir, output_dir, pattern, mass_precision=6, use_fea
     print(f"  - aggregated_scores.npy        : Consensus anomaly scores")
     print(f"  - aggregated_uncertainties.npy : Score std. dev. across windows")
     print(f"  - aggregated_observation_counts.npy : # of windows per event")
+    print(f"  - aggregated_scores_synthetic.npy : Aggregated synthetic background ({len(final_synth_data)} samples)")
     print(f"  - aggregation_metadata.json    : Processing metadata")
     
     return True

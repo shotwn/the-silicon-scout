@@ -157,6 +157,12 @@ def main():
 
     if X is None or len(X) == 0: return
 
+    # Filter out any rows with NaNs or Infs or Mass = 0
+    valid_mask = np.all(np.isfinite(X), axis=1) & (X[:, 0] > 0)
+    X = X[valid_mask]
+    if y is not None:
+        y = y[valid_mask]
+
     # --- Preprocessing & Training ---
     print("Scaling features...")
     scaler = StandardScaler()

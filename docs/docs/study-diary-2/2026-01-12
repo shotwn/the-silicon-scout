@@ -1,0 +1,7 @@
+Process the raw collider data file 'events_blackbox.h5' using FastJet for jet reconstruction. Ensure proper handling of trigger threshold 1200 GeV and the fact this is unlabeled data. Output processed jet data in standard format for subsequent analysis. Start sliding window analysis from 3000 GeV moving right with 400 GeV windows and 100 GeV slide steps up to 4000 GeV. Use all the tools available.
+
+when this prompt is given, Qwen still asks technician:
+
+Process 'events_blackbox.h5' using FastJet with trigger threshold 1200 GeV. Handle unlabeled data. Output processed jet data in standard format (NPY/JSONL) to 'processed_jets/' directory.
+
+Eventhough we have instructed Qwen not to micromanage file formats, it still asks for output format and directory. This is likely because prompt has the word "process" and "output" which makes Qwen think it needs to specify output details.

@@ -615,7 +615,7 @@ def generate_report(**args):
         dir_name = os.path.dirname(output_file)
         if dir_name and not os.path.exists(dir_name):    
             os.makedirs(dir_name, exist_ok=True)
-        with open(output_file, "w") as f:
+        with open(output_file, "w", encoding='utf-8') as f:
             f.write("\n".join(report))
         if not print_report:
             print(f"Enhanced Report saved to {output_file}")
