@@ -121,7 +121,7 @@ class LocalAgent:
         }
         
         filepath = f"jobs/pending/{job_id}.json"
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding='utf-8') as f:
             json.dump(state_data, f, indent=2)
 
         # Wait briefly to ensure file is written
@@ -390,7 +390,7 @@ class LocalAgent:
         # Log prompt
         os.makedirs("debug_logs", exist_ok=True)
         current_time = time.strftime("%Y%m%d_%H%M%S")
-        with open(f"debug_logs/debug_prompt_{current_time}.json", "w") as f:
+        with open(f"debug_logs/debug_prompt_{current_time}.json", "w", encoding='utf-8') as f:
             json.dump(prompt_input_messages, f, indent=2)
 
         # Call Ollama API with streaming
@@ -499,7 +499,7 @@ class LocalAgent:
         serialized_response = self.messages[current_msg_index]
 
         # Log response
-        with open(f"debug_logs/debug_response_{current_time}.txt", "w") as f:
+        with open(f"debug_logs/debug_response_{current_time}.txt", "w", encoding='utf-8') as f:
             f.write(json.dumps(serialized_response, indent=2))
 
         yield serialized_response

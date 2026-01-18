@@ -196,7 +196,7 @@ class Framework:
 
         # Increment and save immediately to "lock" this session number
         new_count = count + 1
-        with open(counter_path, "w") as f:
+        with open(counter_path, "w", encoding='utf-8') as f:
             f.write(str(new_count))
 
         device_tag = os.environ.get("DEVICE_TAG")
@@ -305,7 +305,7 @@ class Framework:
             export_data["agents"][name] = agent.messages
             
         # Write to file
-        with open(filename, "w") as f:
+        with open(filename, "w", encoding='utf-8') as f:
             json.dump(export_data, f, indent=2)
             
         return filename
@@ -424,7 +424,7 @@ class Framework:
         # Keep only last 50 prompts to keep the dropdown clean
         history = history[:50]
         
-        with open(history_file, "w") as f:
+        with open(history_file, "w", encoding='utf-8') as f:
             json.dump(history, f)
         
         return history
